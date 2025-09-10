@@ -4,7 +4,7 @@ ErrorAccessAt0Index = Exception('One-based array accessed at row index 0')
 
 class OneBased2DArray:
 
-    def __init__(self, dimensions=None, from_array= None, dtype=numpy.float):
+    def __init__(self, dimensions=None, from_array= None, dtype=numpy.float64):
         if from_array is not None:
             self._arr = from_array.copy()
         else:

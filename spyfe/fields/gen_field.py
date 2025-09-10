@@ -97,7 +97,7 @@ class GenField:
                         dofnumsout[n] = dofnums[zconn[i, k], j]
                         n += 1
 
-        fun_jit = numba.jit("void(i4[:, :], i8, i8, i4[:, :], i8, i8, i4[:])")(fun)
+        fun_jit = numba.njit(cache=True)(fun)
         fun_jit(self.dofnums, self.dofnums.shape[0], self.dofnums.shape[1],
                 zconn, zconn.shape[0], zconn.shape[1], dofnumsout)
         dofnumsout.shape = sh
