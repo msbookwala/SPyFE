@@ -47,6 +47,33 @@ class FEMMHeatDiff(FEMMBase):
                 assm.elmtx[i, :, :] += dot(gradbfun, dot((jac * w[j]) * kappa_bar, gradbfun.T))
         return assm.make_matrix()
 
+    def mass(self, geom, temp):
+        """Compute the mass matrix.
+
+        :param geom: Geometry field.
+        :param temp: temperature field.
+        :return: Sparse matrix.
+        """
+        fes = self.fes
+        bfuns, gradfunpars, npts, pc, w = self.integration_data()
+        assm = SysmatAssemblerSparseFixedSymm(fes, temp)
+        nexp_nexp = []  # Precomputed for efficiency
+        for j in range(npts):
+            nexp = numpy.zeros((temp.dim, assm.elem_mat_nrowcol))
+            for m in range(fes.nfens):
+                nexp[:, m * temp.dim:(m + 1) * temp.dim] = numpy.identity(temp.dim) * bfuns[j][m]
+            nexp_nexp.append(dot(nexp.T, nexp))
+        rho = self.material.rho
+        jacmat = numpy.zeros((geom.dim, fes.dim))
+        for i in range(fes.conn.shape[0]):
+            x = geom.values[fes.conn[i, :], :]
+            for j in range(npts):
+                jacmat[:, :] = dot(x.T, gradfunpars[j])
+                jac = fes.jac_volume(fes.conn[i, :], bfuns[j], jacmat, x)
+                assm.elmtx[i, :, :] += nexp_nexp[j] * (rho * jac * w[j])
+        return assm.make_matrix()
+
+
     def nz_ebc_loads_conductivity(self, geom, temp):
         fes = self.fes
         bfuns, gradbfunpars, npts, pc, w = self.integration_data()
