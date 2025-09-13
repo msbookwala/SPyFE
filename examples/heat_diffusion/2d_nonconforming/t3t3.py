@@ -33,12 +33,13 @@ from utilities import assemble_gamma, L2_err
 
 
 
-N_i = 50
+N_i = 25
 ys_i = np.linspace(0.0, 1.0, N_i)  # x-coordinates
 xs_i = np.full_like(ys_i, 0.5)     # y-coordinates (constant)
 fens_i, fes_i = l2_blockx_2D(xs_i, ys_i)
 box = bounding_box(fens_i.xyz)
-
+box[2]+=1e-5
+box[3]-=1e-5
 
 start0 = time.time()
 
@@ -52,7 +53,7 @@ Dz = 1.0  # thickness of the slice
 ########################################################################################################################
 # subdomain 1
 ########################################################################################################################
-N1 = 50
+N1 = 30
 # xs1 = np.linspace(0.0, 0.5, int(N1 / 2) + 1)
 # ys1 = np.linspace(0.0, 1.0, N1 + 1)
 # fens1, fes1 = q4_blockx(xs1, ys1)

@@ -35,6 +35,8 @@ ys_i = np.linspace(0.0, 1.0, N_i)  # x-coordinates
 xs_i = np.full_like(ys_i, 0.5)     # y-coordinates (constant)
 fens_i, fes_i = l2_blockx_2D(xs_i, ys_i)
 box = bounding_box(fens_i.xyz)
+box[2]+=1e-5
+box[3]-=1e-5
 
 
 start0 = time.time()

@@ -50,6 +50,60 @@ def q4_blockx(xs, ys):
     return fens, fes
 
 
+def q4_blockx_3D(xs, ys, zs):
+    xs = list(xs); ys = list(ys); zs = list(zs)
+    lens = [len(xs), len(ys), len(zs)]
+    if lens.count(1) != 1:
+        raise ValueError("Exactly one of xs, ys, zs must have length 1 (constant coordinate).")
+
+    # Identify which axes vary (u, v) and which is constant (w)
+    axes = ['x', 'y', 'z']
+    varying_idx = [i for i, L in enumerate(lens) if L > 1]
+    const_idx   = [i for i, L in enumerate(lens) if L == 1][0]
+
+    # The two varying directions (u first / fast index, v second / slow index)
+    A = [xs, ys, zs]
+    u = A[varying_idx[0]]
+    v = A[varying_idx[1]]
+    wval = A[const_idx][0]
+
+    nL = len(u) - 1
+    nW = len(v) - 1
+    nnodes = (nL + 1) * (nW + 1)
+    ncells = (nL) * (nW)
+
+    # Build node coordinates (x,y,z) with the constant axis filled by wval
+    X = OneBased2DArray((nnodes, 3))
+    f = 1
+    for j in range_1based(1, (nW + 1)):
+        for i in range_1based(1, (nL + 1)):
+            # Fill (x,y,z) according to which axes are u, v, and constant
+            coord = [None, None, None]
+            coord[varying_idx[0]] = u[i-1]
+            coord[varying_idx[1]] = v[j-1]
+            coord[const_idx]      = wval
+            X[f, 0], X[f, 1], X[f, 2] = coord[0], coord[1], coord[2]
+            f += 1
+
+    fens = FENodeSet(X.raw_array())
+
+    def node_numbers(i, j, nL, nW):
+        f = (j - 1) * (nL + 1) + i
+        # Q4 local ordering (same as original q4_blockx)
+        return array([f, (f + 1), f + (nL + 1) + 1, f + (nL + 1)]).ravel()
+
+    conns = OneBased2DArray((ncells, 4), dtype=int)
+    gc = 1
+    for i in range_1based(1, nL):
+        for j in range_1based(1, nW):
+            nn = node_numbers(i, j, nL, nW)
+            conns[gc, :] = nn[:]
+            gc += 1
+
+    fes = FESetQ4(conn=conns.raw_array() - 1)
+    return fens, fes
+
+
 def q4_block(Length, Width, nL, nW):
     """Mesh of a rectangle, Q4 elements
 
