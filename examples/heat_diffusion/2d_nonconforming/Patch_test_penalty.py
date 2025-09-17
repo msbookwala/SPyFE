@@ -47,7 +47,7 @@ boundary_fes1 = mesh_boundary(fes1)
 femm_left = FEMMHeatDiff(fes = boundary_fes1, material=m, integration_rule=GaussRule(dim=1, order=2))
 fi_1 = ForceIntensity(magn=lambda x, J: -1.0 if np.isclose(x[0], 0.0) else 0.0)
 F1 += femm_left.distrib_loads(geom1, T1, fi_1, 3)
-
+dbc_nodes1 = []
 
 
 xs2 = np.linspace(1.0, 2.0, 10)
@@ -68,7 +68,7 @@ femm_right = FEMMHeatDiff(fes = boundary_fes2, material=m, integration_rule=Gaus
 fi_2 = ForceIntensity(magn=lambda x, J: 1.0 if np.isclose(x[0], 2.0) else 0.0)
 F2 += femm_right.distrib_loads(geom2, T2, fi_2, 3)
 
-N=25
+N=32
 ys_i = np.linspace(0.0, 2.0, N)  # x-coordinates
 xs_i = np.full_like(ys_i, 1.0)     # y-coordinates (constant)
 fens_i, fes_i = l2_blockx_2D(xs_i, ys_i)
@@ -92,23 +92,37 @@ interface_fe_idx2 = fe_select(fens2, boundary_fes2, box=box)
 g1 = assemble_gamma(fens1, boundary_fes1, interface_fe_idx1, fens_i)
 g2 = assemble_gamma(fens2, boundary_fes2, interface_fe_idx2, fens_i)
 
-B1 = M@g1
-B2 = -M@g2
+beta = 1e8
+B11 = beta*g1.T@M@g1
+B22 = beta*g2.T@M@g2
+B12 = beta*g1.T@M@g2
+B21 = beta*g2.T@M@g1
 # remove dbc_nodes columns
 # B1 = np.delete(B1, dbc_nodes1, axis=1)
-B2 = np.delete(B2, dbc_nodes2, axis=1)
+# B2 = np.delete(B2, dbc_nodes2, axis=1)
 
-mat_size = K1.shape[0] + K2.shape[0] + B1.shape[0] + B2.shape[0]
+B11 = np.delete(B11, dbc_nodes1, axis=1)
+B11 = np.delete(B11, dbc_nodes1, axis=0)
+
+B22 = np.delete(B22, dbc_nodes2, axis=0)
+B22 = np.delete(B22, dbc_nodes2, axis=1)
+
+B12 = np.delete(B12, dbc_nodes1, axis=0)
+B12 = np.delete(B12, dbc_nodes2, axis=1)
+
+B21 = np.delete(B21, dbc_nodes2, axis=0)
+B21 = np.delete(B21, dbc_nodes1, axis=1)
+
+# mat_size = K1.shape[0] + K2.shape[0] + B1.shape[0] + B2.shape[0]
 
 
 A = bmat([
-    [K1,    None,   B1.T],
-    [None,  K2,     B2.T],
-    [B1,    B2,     None],
+    [K1+ B11,   -B12],
+    [-B21,  K2 + B22,],
 ], format='csr')
 
 
-F = np.concatenate([F1, F2, np.zeros(N)])
+F = np.concatenate([F1, F2])
 U = spsolve(A, F)
 
 T1.scatter_sysvec(U[0:K1.shape[0]])
@@ -127,7 +141,3 @@ L2_err2 = L2_err(femm2, geom2, T2, exact)
 
 vtkexport(f"{script_filename}/left", fes1, geom1, {"temp":T1, "err":L2_err1})
 vtkexport(f"{script_filename}/right", fes2, geom2, {"temp":T2, "err":L2_err2})
-
-mu.scatter_sysvec(U[K1.shape[0]+K2.shape[0]:])
-print(f"Lambda values : {mu.values.T}")
-print(f"sum of lambda values = {np.sum(mu.values)}")

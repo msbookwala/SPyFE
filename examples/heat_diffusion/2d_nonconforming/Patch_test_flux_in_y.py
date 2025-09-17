@@ -32,6 +32,8 @@ k = 1.0  # thermal conductivity
 m = MatHeatDiff(thermal_conductivity=array([[k, 0.0], [0.0, k]]), rho=1.0)
 
 
+bb_bottom = np.array([1.0, 1.0, 0.0, 0.0])
+bb_top = np.array([1.0, 1.0, 2.0, 2.0])
 
 xs1 = np.linspace(0.0, 1.0, 8)
 ys1 = np.linspace(0.0, 2.0, 12)
@@ -45,8 +47,10 @@ F1=femm1.nz_ebc_loads_conductivity(geom1, T1)
 boundary_fes1 = mesh_boundary(fes1)
 
 femm_left = FEMMHeatDiff(fes = boundary_fes1, material=m, integration_rule=GaussRule(dim=1, order=2))
-fi_1 = ForceIntensity(magn=lambda x, J: -1.0 if np.isclose(x[0], 0.0) else 0.0)
-F1 += femm_left.distrib_loads(geom1, T1, fi_1, 3)
+fi_1a = ForceIntensity(magn=lambda x, J: -1.0 if np.isclose(x[1], 2.0) else 0.0)
+fi_1b = ForceIntensity(magn=lambda x, J: 1.0 if np.isclose(x[1], 0.0) else 0.0)
+F1 += femm_left.distrib_loads(geom1, T1, fi_1a, 3)
+F1 += femm_left.distrib_loads(geom1, T1, fi_1b, 3)
 
 
 
@@ -65,10 +69,12 @@ K2 = femm2.conductivity(geom2, T2)
 F2=femm2.nz_ebc_loads_conductivity(geom2, T2)
 boundary_fes2 = mesh_boundary(fes2)
 femm_right = FEMMHeatDiff(fes = boundary_fes2, material=m, integration_rule=GaussRule(dim=1, order=2))
-fi_2 = ForceIntensity(magn=lambda x, J: 1.0 if np.isclose(x[0], 2.0) else 0.0)
-F2 += femm_right.distrib_loads(geom2, T2, fi_2, 3)
+fi_2a = ForceIntensity(magn=lambda x, J: -1.0 if np.isclose(x[1], 2.0) else 0.0)
+fi_2b = ForceIntensity(magn=lambda x, J: 1.0 if np.isclose(x[1], 0.0) else 0.0)
+F2 += femm_right.distrib_loads(geom2, T2, fi_2a, 3)
+F2 += femm_right.distrib_loads(geom2, T2, fi_2b, 3)
 
-N=25
+N=22
 ys_i = np.linspace(0.0, 2.0, N)  # x-coordinates
 xs_i = np.full_like(ys_i, 1.0)     # y-coordinates (constant)
 fens_i, fes_i = l2_blockx_2D(xs_i, ys_i)
@@ -121,13 +127,15 @@ if not os.path.exists(script_filename):
     os.mkdir(script_filename)
 
 from utilities import L2_err
-exact =  lambda x: x[0]-1
+exact =  lambda x:1- x[1]
 L2_err1 = L2_err(femm1, geom1, T1, exact)
 L2_err2 = L2_err(femm2, geom2, T2, exact)
 
 vtkexport(f"{script_filename}/left", fes1, geom1, {"temp":T1, "err":L2_err1})
 vtkexport(f"{script_filename}/right", fes2, geom2, {"temp":T2, "err":L2_err2})
 
+
 mu.scatter_sysvec(U[K1.shape[0]+K2.shape[0]:])
 print(f"Lambda values : {mu.values.T}")
-print(f"sum of lambda values = {np.sum(mu.values)}")
+
+# vtkexport(f"{script_filename}/interface", fes_i, geom_i, {"lambda":mu})
