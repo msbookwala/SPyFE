@@ -33,21 +33,31 @@ m = MatHeatDiff(thermal_conductivity=array([[k, 0.0], [0.0, k]]), rho=1.0)
 from spyfe.meshing.generators.triangles import t3_ablock
 
 
+box = np.array([1.0, 1.0, 0.0, 2.0])
 
 xs1 = np.linspace(0.0, 1.0, 8)
-ys1 = np.linspace(0.0, 2.0, 21)
+ys1 = np.linspace(0.0, 2.0, 22)
 fens1, fes1 = q4_blockx(xs1, ys1)
+fens1, fes1 = t3_ablock(1, 2, 9, 24)
+boundary_nodes1 = fenode_select(fens1, box)
+boundary_fes1 = mesh_boundary(fes1)
+interface_fe_idx1 = fe_select(fens1, boundary_fes1, box=box)
 
-# fens1, fes1 = t3_ablock(1, 2, 9, 24)
 
-femm1 = FEMMHeatDiff(fes = fes1, material=m, integration_rule=GaussRule(dim=2, order=2))
-# femm1 = FEMMHeatDiff(fes = fes1, material=m, integration_rule=TriRule(npts=1))
+
+fens1.xyz[:, 0] +=  fens1.xyz[:, 0]*(fens1.xyz[:, 1]-1) * 0.2
+
+
+
+
+# femm1 = FEMMHeatDiff(fes = fes1, material=m, integration_rule=GaussRule(dim=2, order=2))
+femm1 = FEMMHeatDiff(fes = fes1, material=m, integration_rule=TriRule(npts=1))
 T1 = NodalField(nfens=fens1.count(), dim=1)
 geom1 = NodalField(fens=fens1)
 T1.numberdofs()
 K1 = femm1.conductivity(geom1, T1)
 F1=femm1.nz_ebc_loads_conductivity(geom1, T1)
-boundary_fes1 = mesh_boundary(fes1)
+
 
 femm_left = FEMMHeatDiff(fes = boundary_fes1, material=m, integration_rule=GaussRule(dim=1, order=2))
 fi_1 = ForceIntensity(magn=lambda x, J: -1.0 if np.isclose(x[0], 0.0) else 0.0)
@@ -56,14 +66,17 @@ F1 += femm_left.distrib_loads(geom1, T1, fi_1, 3)
 
 
 xs2 = np.linspace(1.0, 2.0, 10)
-ys2 = np.linspace(0.0, 2.0, 21)
-fens2, fes2 = q4_blockx(xs2, ys2)
+ys2 = np.linspace(0.0, 2.0, 30)
+# fens2, fes2 = q4_blockx(xs2, ys2)
+fens2, fes2 = t3_ablock(1, 2, 11, 30)
+fens2.xyz[:, 0] += 1.0
+boundary_nodes2 = fenode_select(fens2, box)
+boundary_fes2 = mesh_boundary(fes2)
+interface_fe_idx2 = fe_select(fens2, boundary_fes2, box=box)
+fens2.xyz[:, 0] +=  (2-fens2.xyz[:, 0])*(fens2.xyz[:, 1] - 1)*0.2
 
-# fens2, fes2 = t3_ablock(1, 2, 11, 20)
-# fens2.xyz[:, 0] += 1.0
-
-femm2 = FEMMHeatDiff(fes = fes2, material=m, integration_rule=GaussRule(dim=2, order=2))
-# femm2 = FEMMHeatDiff(fes = fes2, material=m, integration_rule=TriRule(npts=1))
+# femm2 = FEMMHeatDiff(fes = fes2, material=m, integration_rule=GaussRule(dim=2, order=2))
+femm2 = FEMMHeatDiff(fes = fes2, material=m, integration_rule=TriRule(npts=1))
 T2 = NodalField(nfens=fens2.count(), dim=1)
 geom2 = NodalField(fens=fens2)
 dbc_box2 = bounding_box([2.0, 0.0])
@@ -79,8 +92,10 @@ fi_2 = ForceIntensity(magn=lambda x, J: 1.0 if np.isclose(x[0], 2.0) else 0.0)
 F2 += femm_right.distrib_loads(geom2, T2, fi_2, 3)
 
 # N=21
-ys_i = np.unique(np.hstack([fens2.xyz[:, 1],fens1.xyz[:, 1]]))
-xs_i = np.full_like(ys_i, 1.0)     # y-coordinates (constant)
+
+xys = np.unique(np.vstack([fens1.xyz[boundary_nodes1], fens2.xyz[boundary_nodes2]]), axis=0)
+ys_i = xys[:,1]
+xs_i = xys[:,0]    # y-coordinates (constant)
 fens_i, fes_i = l2_blockx_2D(xs_i, ys_i)
 
 mu =  NodalField(nfens=fens_i.count(), dim=1)
@@ -89,14 +104,8 @@ mu.numberdofs()
 femm_i = FEMMHeatDiff(fes = fes_i, material=m, integration_rule=GaussRule(dim=1, order=2))
 M = femm_i.mass(geom_i, mu)
 
-box = bounding_box(fens_i.xyz)
-boundary_nodes1 = fenode_select(fens1, box)
-boundary_nodes2 = fenode_select(fens2, box)
+# box = bounding_box(fens_i.xyz)
 
-
-
-interface_fe_idx1 = fe_select(fens1, boundary_fes1, box=box)
-interface_fe_idx2 = fe_select(fens2, boundary_fes2, box=box)
 
 
 g1 = assemble_gamma(fens1, boundary_fes1, interface_fe_idx1, fens_i)

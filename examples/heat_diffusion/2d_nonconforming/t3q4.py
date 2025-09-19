@@ -17,7 +17,7 @@ from spyfe.materials.mat_heatdiff import MatHeatDiff
 from spyfe.femms.femm_heatdiff import FEMMHeatDiff
 from spyfe.femms.femm_defor import FEMMDefor
 from spyfe.fields.nodal_field import NodalField
-from spyfe.integ_rules import GaussRule
+from spyfe.integ_rules import GaussRule, TriRule
 from spyfe.force_intensity import ForceIntensity
 from scipy.sparse.linalg import spsolve
 from scipy.sparse.csgraph import reverse_cuthill_mckee
@@ -68,7 +68,7 @@ dbc_nodes1 = np.setdiff1d(cn1, boundary_nodes1, assume_unique=True)
 for index  in dbc_nodes1:
     T1.set_ebc([index], val=boundaryf(fens1.xyz[index, 0], fens1.xyz[index, 1]))
 T1.apply_ebc()
-femm1 = FEMMHeatDiff(material=m, fes=fes1, integration_rule=GaussRule(dim=2, order=2))
+femm1 = FEMMHeatDiff(material=m, fes=fes1, integration_rule=TriRule(npts=1))
 
 T1.numberdofs()
 fi1= ForceIntensity(magn=lambda x, J: Q)
