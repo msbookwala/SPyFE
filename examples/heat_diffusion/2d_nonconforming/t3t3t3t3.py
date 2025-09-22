@@ -18,7 +18,7 @@ from spyfe.femms.femm_heatdiff import FEMMHeatDiff
 from spyfe.femms.femm_defor import FEMMDefor
 from spyfe.fields.nodal_field import NodalField
 from spyfe.fields.elemental_field import ElementalField
-from spyfe.integ_rules import GaussRule
+from spyfe.integ_rules import GaussRule, TriRule
 from spyfe.force_intensity import ForceIntensity
 from scipy.sparse.linalg import spsolve
 from scipy.sparse.csgraph import reverse_cuthill_mckee
@@ -95,7 +95,7 @@ dbc_nodes1 = np.setdiff1d(cn1, boundary_nodes1, assume_unique=True)
 for index  in dbc_nodes1:
     T1.set_ebc([index], val=boundaryf(fens1.xyz[index, 0], fens1.xyz[index, 1]))
 T1.apply_ebc()
-femm1 = FEMMHeatDiff(material=m, fes=fes1, integration_rule=GaussRule(dim=2, order=2))
+femm1 = FEMMHeatDiff(material=m, fes=fes1, integration_rule=TriRule(npts=3))
 
 T1.numberdofs()
 fi1= ForceIntensity(magn=lambda x, J: Q)
@@ -126,7 +126,7 @@ dbc_nodes2 = np.setdiff1d(cn2, boundary_nodes2, assume_unique=True)
 for index  in dbc_nodes2:
     T2.set_ebc([index], val=boundaryf(fens2.xyz[index, 0], fens2.xyz[index, 1]))
 T2.apply_ebc()
-femm2 = FEMMHeatDiff(material=m, fes=fes2, integration_rule=GaussRule(dim=2, order=2))
+femm2 = FEMMHeatDiff(material=m, fes=fes2, integration_rule=TriRule(npts=3))
 
 T2.numberdofs()
 fi2 = ForceIntensity(magn=lambda x, J: Q)
@@ -150,7 +150,7 @@ dbc_nodes3 = np.setdiff1d(cn3, boundary_nodes3, assume_unique=True)
 for index  in dbc_nodes3:
     T3.set_ebc([index], val=boundaryf(fens3.xyz[index, 0], fens3.xyz[index, 1]))
 T3.apply_ebc()
-femm3 = FEMMHeatDiff(material=m, fes=fes3, integration_rule=GaussRule(dim=2, order=2))
+femm3 = FEMMHeatDiff(material=m, fes=fes3, integration_rule=TriRule(npts=3))
 T3.numberdofs()
 fi3 = ForceIntensity(magn=lambda x, J: Q)
 F3 = femm3.distrib_loads(geom3, T3, fi3, 3)
@@ -173,7 +173,7 @@ dbc_nodes4 = np.setdiff1d(cn4, boundary_nodes4, assume_unique=True)
 for index  in dbc_nodes4:
     T4.set_ebc([index], val=boundaryf(fens4.xyz[index, 0], fens4.xyz[index, 1]))
 T4.apply_ebc()
-femm4 = FEMMHeatDiff(material=m, fes=fes4, integration_rule=GaussRule(dim=2, order=2))
+femm4 = FEMMHeatDiff(material=m, fes=fes4, integration_rule=TriRule(npts=3))
 T4.numberdofs()
 fi4 = ForceIntensity(magn=lambda x, J: Q)
 F4 = femm4.distrib_loads(geom4, T4, fi4, 3)

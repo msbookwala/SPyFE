@@ -95,7 +95,7 @@ F2 += femm_right.distrib_loads(geom2, T2, fi_2, 3)
 
 xys = np.unique(np.vstack([fens1.xyz[boundary_nodes1], fens2.xyz[boundary_nodes2]]), axis=0)
 ys_i = xys[:,1]
-xs_i = xys[:,0]    # y-coordinates (constant)
+xs_i = xys[:,0]
 fens_i, fes_i = l2_blockx_2D(xs_i, ys_i)
 
 mu =  NodalField(nfens=fens_i.count(), dim=1)

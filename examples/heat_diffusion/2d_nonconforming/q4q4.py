@@ -33,11 +33,11 @@ from utilities import assemble_gamma, L2_err
 
 
 
-N_i = 25
-ys_i = np.linspace(0.0, 1.0, N_i)  # x-coordinates
-xs_i = np.full_like(ys_i, 0.5)     # y-coordinates (constant)
-fens_i, fes_i = l2_blockx_2D(xs_i, ys_i)
-box = bounding_box(fens_i.xyz)
+# N_i = 25
+# ys_i = np.linspace(0.0, 1.0, N_i)  # x-coordinates
+# xs_i = np.full_like(ys_i, 0.5)     # y-coordinates (constant)
+# fens_i, fes_i = l2_blockx_2D(xs_i, ys_i)
+box = np.array([0.5,0.5,0.0,1.0])
 box[2]+=1e-5
 box[3]-=1e-5
 
@@ -54,7 +54,7 @@ Dz = 1.0  # thickness of the slice
 ########################################################################################################################
 # subdomain 1
 ########################################################################################################################
-N1 = 54
+N1 = 30
 xs1 = np.linspace(0.0, 0.5, int(N1 / 2) + 1)
 ys1 = np.linspace(0.0, 1.0, N1 + 1)
 fens1, fes1 = q4_blockx(xs1, ys1)
@@ -83,7 +83,7 @@ interface_fe_idx1 = fe_select(fens1, boundary_fes1, box=box)
 ########################################################################################################################
 # subdomain 2
 ########################################################################################################################
-N2 = 24
+N2 = 30
 xs2 = np.linspace(0.5, 1.0, int(N2 / 2) + 1)
 ys2 = np.linspace(0.0, 1.0, N2 + 1)
 fens2, fes2 = q4_blockx(xs2, ys2)
@@ -108,6 +108,21 @@ interface_fe_idx2 = fe_select(fens2, boundary_fes2, box=box)
 ########################################################################################################################
 # interface
 ########################################################################################################################
+N_i = 30
+ys_i = np.linspace(0.0, 1.0, N_i+1)  # x-coordinates
+xs_i = np.full_like(ys_i, 0.5)     # y-coordinates (constant)
+fens_i, fes_i = l2_blockx_2D(xs_i, ys_i)
+
+
+# # nodes to create frame including the ones that go for dbc
+# box_ = np.array([0.5,0.5,0.0,1.0])
+# bn1 = fenode_select(fens1, box_)
+# bn2 = fenode_select(fens2, box_)
+# xys = np.unique(np.vstack([fens1.xyz[bn1], fens2.xyz[bn2]]), axis=0)
+# ys_i = xys[:,1]
+# xs_i = xys[:,0]
+# fens_i, fes_i = l2_blockx_2D(xs_i, ys_i)
+
 mu =  NodalField(nfens=fens_i.count(), dim=1)
 geom_i = NodalField(fens=fens_i)
 mu.numberdofs()
@@ -132,7 +147,7 @@ A = bmat([
 ], format='csr')
 
 
-F = np.concatenate([F1, F2, np.zeros(N_i)])
+F = np.concatenate([F1, F2, np.zeros(fens_i.count())])
 U = spsolve(A, F)
 T1.scatter_sysvec(U[0:K1.shape[0]])
 T2.scatter_sysvec(U[K1.shape[0]:K1.shape[0]+K2.shape[0]])
