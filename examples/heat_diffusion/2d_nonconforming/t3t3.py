@@ -37,6 +37,7 @@ from utilities import assemble_gamma, L2_err
 box = [0.5,0.5,0.0, 1.0]
 box[2]+=1e-5
 box[3]-=1e-5
+box_ = np.array([0.5,0.5,0.0,1.0])
 
 start0 = time.time()
 
@@ -74,14 +75,14 @@ fi1= ForceIntensity(magn=lambda x, J: Q)
 F1 = femm1.distrib_loads(geom1, T1, fi1, 3)
 F1 += femm1.nz_ebc_loads_conductivity(geom1, T1)
 K1 = femm1.conductivity(geom1, T1)
-interface_fe_idx1 = fe_select(fens1, boundary_fes1, box=box)
+interface_fe_idx1 = fe_select(fens1, boundary_fes1, box=box_)
 
 err1 = ElementalField(fes = fes1)
 
 ########################################################################################################################
 # subdomain 2
 ########################################################################################################################
-N2 = 24
+N2 = 15
 # xs2 = np.linspace(0.5, 1.0, int(N2 / 2) + 1)
 # ys2 = np.linspace(0.0, 1.0, N2 + 1)
 # fens2, fes2 = q4_blockx(xs2, ys2)
@@ -105,21 +106,22 @@ fi2 = ForceIntensity(magn=lambda x, J: Q)
 F2 = femm2.distrib_loads(geom2, T2, fi2, 3)
 F2 += femm2.nz_ebc_loads_conductivity(geom2, T2)
 K2 = femm2.conductivity(geom2, T2)
-interface_fe_idx2 = fe_select(fens2, boundary_fes2, box=box)
+interface_fe_idx2 = fe_select(fens2, boundary_fes2, box=box_)
 ########################################################################################################################
 # interface
 ########################################################################################################################
 
-N_i = 25
-ys_i = np.linspace(0.0, 1.0, N_i)  # x-coordinates
-xs_i = np.full_like(ys_i, 0.5)     # y-coordinates (constant)
-fens_i, fes_i = l2_blockx_2D(xs_i, ys_i)
-
-
-# xys = np.unique(np.vstack([fens1.xyz[boundary_nodes1], fens2.xyz[boundary_nodes2]]), axis=0)
-# ys_i = xys[:,1]
-# xs_i = xys[:,0]
+# N_i = 25
+# ys_i = np.linspace(0.0, 1.0, N_i)  # x-coordinates
+# xs_i = np.full_like(ys_i, 0.5)     # y-coordinates (constant)
 # fens_i, fes_i = l2_blockx_2D(xs_i, ys_i)
+
+bn1 = fenode_select(fens1, box)
+bn2 = fenode_select(fens2, box)
+xys = np.unique(np.vstack([fens1.xyz[bn1], fens2.xyz[bn2]]), axis=0)
+ys_i = xys[:,1]
+xs_i = xys[:,0]
+fens_i, fes_i = l2_blockx_2D(xs_i, ys_i)
 
 
 mu =  NodalField(nfens=fens_i.count(), dim=1)
@@ -132,6 +134,14 @@ g1 = assemble_gamma(fens1, boundary_fes1, interface_fe_idx1, fens_i)
 g2 = assemble_gamma(fens2, boundary_fes2, interface_fe_idx2, fens_i)
 B1 = M@g1
 B2 = -M@g2
+
+B1_p  = B1[:, dbc_nodes1]
+B2_p  = B2[:, dbc_nodes2]
+T1_p = T1.fixed_values[T1.is_fixed]
+T2_p = T2.fixed_values[T2.is_fixed]
+
+dbc_lam_f = -B1_p@T1_p - B2_p@T2_p
+
 # remove dbc_nodes columns
 B1 = np.delete(B1, dbc_nodes1, axis=1)
 B2 = np.delete(B2, dbc_nodes2, axis=1)
@@ -146,7 +156,9 @@ A = bmat([
 ], format='csr')
 
 
-F = np.concatenate([F1, F2, np.zeros(fens_i.count())])
+# F = np.concatenate([F1, F2, np.zeros(fens_i.count())])
+F = np.concatenate([F1, F2, dbc_lam_f])
+
 U = spsolve(A, F)
 T1.scatter_sysvec(U[0:K1.shape[0]])
 T2.scatter_sysvec(U[K1.shape[0]:K1.shape[0]+K2.shape[0]])
@@ -164,3 +176,5 @@ L2_err2 = L2_err(femm2, geom2, T2, exact)
 
 vtkexport(f"{script_filename}/left", fes1, geom1, {"temp":T1, "err":L2_err1})
 vtkexport(f"{script_filename}/right", fes2, geom2, {"temp":T2, "err":L2_err2})
+from mergevtk import merge_vtk_files_common_fields
+merge_vtk_files_common_fields(f"{script_filename}/left.vtu", f"{script_filename}/right.vtu", f"{script_filename}/merged.vtu")
