@@ -73,7 +73,7 @@ class FEMMHeatDiff(FEMMBase):
                 jac = fes.jac_volume(fes.conn[i, :], bfuns[j], jacmat, x)
                 assm.elmtx[i, :, :] += nexp_nexp[j] * (rho * jac * w[j])
         return assm.make_matrix()
-    def mass_mortar(self, geom, temp):
+    def mass_dual(self, geom, temp):
         """Compute the mass matrix.
 
         :param geom: Geometry field.
@@ -84,23 +84,11 @@ class FEMMHeatDiff(FEMMBase):
         bfuns, gradfunpars, npts, pc, w = self.integration_data()
         assm = SysmatAssemblerSparseFixedSymm(fes, temp)
         nexp_nexp = []  # Precomputed for efficiency
-        bfuns_left = [numpy.array([[1],[1]]), numpy.array([[0.21132487], [0.78867513]])]
-        bfuns_right = [numpy.array([[0.78867513],[0.21132487]]), numpy.array([[1],[1]])]
-        nexp_nexp_left =[]
-        nexp_nexp_right =[]
-        # bfuns_endpts = [1,1]
         for j in range(npts):
             nexp = numpy.zeros((temp.dim, assm.elem_mat_nrowcol))
-            nexpl = numpy.zeros((temp.dim, assm.elem_mat_nrowcol))
-            nexpr = numpy.zeros((temp.dim, assm.elem_mat_nrowcol))
             for m in range(fes.nfens):
                 nexp[:, m * temp.dim:(m + 1) * temp.dim] = numpy.identity(temp.dim) * bfuns[j][m]
-                nexpl[:, m * temp.dim:(m + 1) * temp.dim] = numpy.identity(temp.dim) * bfuns_left[j][m]
-                nexpr[:, m * temp.dim:(m + 1) * temp.dim] = numpy.identity(temp.dim) * bfuns_right[j][m]
-
             nexp_nexp.append(dot(nexp.T, nexp))
-            nexp_nexp_left.append(dot(nexpl.T, nexpl))
-            nexp_nexp_right.append(dot(nexpr.T, nexpr))
         rho = self.material.rho
         jacmat = numpy.zeros((geom.dim, fes.dim))
         for i in range(fes.conn.shape[0]):
@@ -108,12 +96,9 @@ class FEMMHeatDiff(FEMMBase):
             for j in range(npts):
                 jacmat[:, :] = dot(x.T, gradfunpars[j])
                 jac = fes.jac_volume(fes.conn[i, :], bfuns[j], jacmat, x)
-                if i==0:
-                    assm.elmtx[i, :, :] += nexp_nexp_left[j] * (rho * jac * w[j])
-                elif i==fes.conn.shape[0]-1:
-                    assm.elmtx[i, :, :] += nexp_nexp_right[j] * (rho * jac * w[j])
-                else:
-                    assm.elmtx[i, :, :] += nexp_nexp[j] * (rho * jac * w[j])
+                assm.elmtx[i, :, :] += nexp_nexp[j] * (rho * jac * w[j])
+            d = numpy.diag(numpy.sum(assm.elmtx[i, :, :], axis=1))
+            assm.elmtx[i, :, :] = d[:,:]
         return assm.make_matrix()
     def lam_mat(self, geom, temp):
         """Compute the lam matrix. works for only 1 dim for now

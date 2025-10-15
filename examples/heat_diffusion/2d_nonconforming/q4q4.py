@@ -131,7 +131,7 @@ geom_i = NodalField(fens=fens_i)
 mu.numberdofs()
 femm_i = FEMMHeatDiff(fes = fes_i, material=m, integration_rule=GaussRule(dim=1, order=2))
 M = femm_i.mass(geom_i, mu)
-M = femm_i.mass_mortar(geom_i, mu)
+# M = femm_i.mass_mortar(geom_i, mu)
 
 g1 = assemble_gamma(fens1, boundary_fes1, interface_fe_idx1, fens_i)
 g2 = assemble_gamma(fens2, boundary_fes2, interface_fe_idx2, fens_i)

@@ -80,8 +80,8 @@ fi_2 = ForceIntensity(magn=lambda x, J: 1.0 if np.isclose(x[0], 2.0) else 0.0)
 F2 += femm_right.distrib_loads(geom2, T2, fi_2, 3)
 
 # N=21
-# ys_i = np.unique(np.hstack([fens2.xyz[:, 1],fens1.xyz[:, 1]]))
-ys_i = np.linspace(0.0, 2.0, 3)  # x-coordinates
+ys_i = np.unique(np.hstack([fens2.xyz[:, 1],fens1.xyz[:, 1]]))
+# ys_i = np.linspace(0.0, 2.0, 4)  # x-coordinates
 xs_i = np.full_like(ys_i, 1.0)     # y-coordinates (constant)
 fens_i, fes_i = l2_blockx_2D(xs_i, ys_i)
 
@@ -149,7 +149,19 @@ merge_vtk_files_common_fields(f"{script_filename}/left.vtu", f"{script_filename}
 mu.scatter_sysvec(U[K1.shape[0]+K2.shape[0]:])
 print(f"Lambda values : {mu.values.T}")
 print(f"sum of lambda values = {np.sum(mu.values)}")
-
+import matplotlib.pyplot as plt
+plt.stairs((U[K1.shape[0]+K2.shape[0]:]),fens_i.xyz[:,1], baseline=None,  label="lambda f")
+# # plt.plot(fens1.xyz[boundary_nodes1, 1],lmbd1, label="lambda 1")
+# # plt.plot(fens2.xyz[boundary_nodes2, 1], lmbd2, label="lambda 2")
+plt.legend()
+plt.title("Lagrange multipliers and their projections\n NBC on top and bottom")
+plt.xlabel("y along the interface")
+plt.ylabel("Lagrange multiplier")
+# # plt.ylim(-50,50)
+# # if(np.max(lmbd1)-np.min(lmbd1))<0.2 :
+# #     plt.ylim(-2,0)
+#
+plt.show()
 # g1_plus = np.linalg.pinv(g1)[boundary_nodes1, :]
 # g2_plus = np.linalg.pinv(g2)[boundary_nodes2, :]
 # lmbd_f = U[K1.shape[0]+K2.shape[0]:]

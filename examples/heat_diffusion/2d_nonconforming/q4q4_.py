@@ -58,7 +58,7 @@ q = lambda x, y: 4*y
 ########################################################################################################################
 # subdomain 1
 ########################################################################################################################
-N1 = 20
+N1 = 10
 xs1 = np.linspace(0.0, 0.5, int(N1 / 2) + 1)
 ys1 = np.linspace(0.0, 1.0, N1 + 1)
 fens1, fes1 = q4_blockx(xs1, ys1)
@@ -92,7 +92,7 @@ F1 += femm_nbc1.distrib_loads(geom1, T1, fi_top, 3)
 ########################################################################################################################
 # subdomain 2
 ########################################################################################################################
-N2 = 15
+N2 = 8
 xs2 = np.linspace(0.5, 1.0, int(N2 / 2) + 1)
 ys2 = np.linspace(0.0, 1.0, N2 + 1)
 fens2, fes2 = q4_blockx(xs2, ys2)
@@ -123,7 +123,7 @@ F2 += femm_nbc2.distrib_loads(geom2, T2, fi_top, 3)
 ########################################################################################################################
 # interface
 ########################################################################################################################
-# N_i = 9
+# N_i = 10
 # ys_i = np.linspace(0.0, 1.0, N_i+1)  # x-coordinates
 # xs_i = np.full_like(ys_i, 0.5)     # y-coordinates (constant)
 # fens_i, fes_i = l2_blockx_2D(xs_i, ys_i)
@@ -141,9 +141,14 @@ fens_i, fes_i = l2_blockx_2D(xs_i, ys_i)
 mu =  NodalField(nfens=fens_i.count(), dim=1)
 geom_i = NodalField(fens=fens_i)
 mu.numberdofs()
-femm_i = FEMMHeatDiff(fes = fes_i, material=m, integration_rule=GaussRule(dim=1, order=2))
+femm_i = FEMMHeatDiff(fes = fes_i, material=m, integration_rule=GaussRule(dim=1, order=1))
 # M = femm_i.mass_mortar(geom_i, mu)
-M = femm_i.mass(geom_i, mu)
+# M = femm_i.mass(geom_i, mu)
+M = femm_i.mass_dual(geom_i, mu)
+
+# D_diag = np.asarray(M.sum(axis=1)).ravel()       # row sums
+# M = csr_matrix((D_diag, (np.arange(len(D_diag)), np.arange(len(D_diag)))), shape=M.shape)
+
 
 g1 = assemble_gamma(fens1, boundary_fes1, interface_fe_idx1, fens_i)
 g2 = assemble_gamma(fens2, boundary_fes2, interface_fe_idx2, fens_i)
@@ -170,6 +175,11 @@ A = bmat([
     [K1,    None,   B1.T],
     [None,  K2,     B2.T],
     [B1,    B2,     5e-3*M]
+], format='csr')
+A = bmat([
+    [K1,    None,   B1.T],
+    [None,  K2,     B2.T],
+    [B1,    B2,     None]
 ], format='csr')
 
 

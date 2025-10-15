@@ -59,7 +59,7 @@ q = lambda x, y: 4*y
 ########################################################################################################################
 # subdomain 1
 ########################################################################################################################
-N1 = 100
+N1 = 60
 xs1 = np.linspace(0.0, 0.5, int(N1 / 2) + 1)
 ys1 = np.linspace(0.0, 1.0, N1 + 1)
 fens1, fes1 = q4_blockx(xs1, ys1)
@@ -93,7 +93,7 @@ F1 += femm_nbc1.distrib_loads(geom1, T1, fi_top, 3)
 ########################################################################################################################
 # subdomain 2
 ########################################################################################################################
-N2 = 80
+N2 = 60
 xs2 = np.linspace(0.5, 1.0, int(N2 / 2) + 1)
 ys2 = np.linspace(0.0, 1.0, N2 + 1)
 fens2, fes2 = q4_blockx(xs2, ys2)
@@ -124,10 +124,10 @@ F2 += femm_nbc2.distrib_loads(geom2, T2, fi_top, 3)
 ########################################################################################################################
 # interface
 ########################################################################################################################
-# N_i = 100
-# ys_i = np.linspace(0.0, 1.0, N_i+1)  # x-coordinates
-# xs_i = np.full_like(ys_i, 0.5)     # y-coordinates (constant)
-# fens_i, fes_i = l2_blockx_2D(xs_i, ys_i)
+N_i = 100
+ys_i = np.linspace(0.0, 1.0, N_i+1)  # x-coordinates
+xs_i = np.full_like(ys_i, 0.5)     # y-coordinates (constant)
+fens_i, fes_i = l2_blockx_2D(xs_i, ys_i)
 
 
 # # nodes to create frame including the ones that go for dbc
@@ -166,10 +166,15 @@ B2 = np.delete(B2, dbc_nodes2, axis=1)
 
 
 
+# A = bmat([
+#     [K1,    None,   B1.T],
+#     [None,  K2,     B2.T],
+#     [B1,    B2,     10e-5*np.eye(B1.shape[0])],
+# ], format='csr')
 A = bmat([
     [K1,    None,   B1.T],
     [None,  K2,     B2.T],
-    [B1,    B2,     10e-9*np.eye(B1.shape[0])],
+    [B1,    B2,     None],
 ], format='csr')
 
 
@@ -216,7 +221,7 @@ import matplotlib.pyplot as plt
 #
 # print(f"Average of lambda 1: {np.sum(lmbd1)/len(lmbd1)}")
 # print(f"Average of lambda 2: {np.sum(lmbd2)/len(lmbd2)}")
-plt.plot((U[K1.shape[0]+K2.shape[0]:]), label="lambda f")
+plt.stairs((U[K1.shape[0]+K2.shape[0]:]),fens_i.xyz[:,1], baseline=None,  label="lambda f")
 # # plt.plot(fens1.xyz[boundary_nodes1, 1],lmbd1, label="lambda 1")
 # # plt.plot(fens2.xyz[boundary_nodes2, 1], lmbd2, label="lambda 2")
 plt.legend()
