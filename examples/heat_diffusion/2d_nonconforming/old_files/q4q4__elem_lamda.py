@@ -206,6 +206,7 @@ L2_err2 = L2_err(femm2, geom2, T2, exact)
 
 vtkexport(f"{script_filename}/left", fes1, geom1, {"temp":T1, "err":L2_err1})
 vtkexport(f"{script_filename}/right", fes2, geom2, {"temp":T2, "err":L2_err2})
+from mergevtk import merge_vtk_files_common_fields
 merge_vtk_files_common_fields(f"{script_filename}/left.vtu", f"{script_filename}/right.vtu", f"{script_filename}/merged.vtu")
 
 mu.scatter_sysvec(U[K1.shape[0]+K2.shape[0]:])

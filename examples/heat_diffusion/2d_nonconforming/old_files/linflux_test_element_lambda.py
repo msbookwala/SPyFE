@@ -29,7 +29,10 @@ from spyfe.meshing.generators.intervals import l2_blockx_2D
 from spyfe.meshing.selection import connected_nodes, fe_select, fenode_select
 from matplotlib.path import Path
 from scipy.sparse import bmat
-from utilities import assemble_gamma, L2_err, build_edge_map_simple
+from utilities import assemble_gamma, L2_err
+
+
+
 
 # N_i = 25
 # ys_i = np.linspace(0.0, 1.0, N_i)  # x-coordinates
@@ -47,16 +50,16 @@ box_bottom = np.array([1.0,0.0,0.0,0.0])
 start0 = time.time()
 
 # These are the constants in the problem, k is kappa
-boundaryf = lambda x, y: 1.0 + x ** 2 + 2 * y ** 2
-Q = -6  # internal heat generation rate
+boundaryf = lambda x, y: x*y
+Q = 0 # internal heat generation rate
 k = 1.0  # thermal conductivity
 m = MatHeatDiff(thermal_conductivity=array([[k, 0.0], [0.0, k]]), rho=1.0)
 Dz = 1.0  # thickness of the slice
-q = lambda x, y: 4*y
+q = lambda x, y: x
 ########################################################################################################################
 # subdomain 1
 ########################################################################################################################
-N1 = 40
+N1 = 97
 xs1 = np.linspace(0.0, 0.5, int(N1 / 2) + 1)
 ys1 = np.linspace(0.0, 1.0, N1 + 1)
 fens1, fes1 = q4_blockx(xs1, ys1)
@@ -82,7 +85,7 @@ K1 = femm1.conductivity(geom1, T1)
 interface_fe_idx1 = fe_select(fens1, boundary_fes1, box=box_)
 
 femm_nbc1 = FEMMHeatDiff(fes = boundary_fes1, material=m, integration_rule=GaussRule(dim=1, order=2))
-fi_bottom = ForceIntensity(magn=lambda x, J: q(x[0],x[1]) if np.isclose(x[1], 0.0) else 0.0)
+fi_bottom = ForceIntensity(magn=lambda x, J: -q(x[0],x[1]) if np.isclose(x[1], 0.0) else 0.0)
 fi_top = ForceIntensity(magn=lambda x, J: q(x[0],x[1]) if np.isclose(x[1], 1.0) else 0.0)
 F1 += femm_nbc1.distrib_loads(geom1, T1, fi_bottom, 3)
 F1 += femm_nbc1.distrib_loads(geom1, T1, fi_top, 3)
@@ -90,7 +93,7 @@ F1 += femm_nbc1.distrib_loads(geom1, T1, fi_top, 3)
 ########################################################################################################################
 # subdomain 2
 ########################################################################################################################
-N2 = 23
+N2 = 100
 xs2 = np.linspace(0.5, 1.0, int(N2 / 2) + 1)
 ys2 = np.linspace(0.0, 1.0, N2 + 1)
 fens2, fes2 = q4_blockx(xs2, ys2)
@@ -121,8 +124,7 @@ F2 += femm_nbc2.distrib_loads(geom2, T2, fi_top, 3)
 ########################################################################################################################
 # interface
 ########################################################################################################################
-N_i = min(N1, N2)
-N_i = 3
+N_i = 50
 ys_i = np.linspace(0.0, 1.0, N_i+1)  # x-coordinates
 xs_i = np.full_like(ys_i, 0.5)     # y-coordinates (constant)
 fens_i, fes_i = l2_blockx_2D(xs_i, ys_i)
@@ -132,7 +134,7 @@ fens_i, fes_i = l2_blockx_2D(xs_i, ys_i)
 
 # bn1 = fenode_select(fens1, box_)
 # bn2 = fenode_select(fens2, box_)
-# xys = np.unique(np.round(np.vstack([fens1.xyz[bn1], fens2.xyz[bn2]]), 10), axis=0)
+# xys = np.unique(np.round(np.vstack([fens1.xyz[bn1], fens2.xyz[bn2]]), 7), axis=0)
 # ys_i = xys[:,1]
 # xs_i = xys[:,0]
 # fens_i, fes_i = l2_blockx_2D(xs_i, ys_i)
@@ -158,7 +160,7 @@ dbc_lam_f = -B1_p@T1_p - B2_p@T2_p
 # remove dbc_nodes columns
 B1 = np.delete(B1, dbc_nodes1, axis=1)
 B2 = np.delete(B2, dbc_nodes2, axis=1)
-
+from utilities import build_edge_map_simple
 G1 = build_edge_map_simple(fens_i.xyz, fens1.xyz, boundary_fes1.conn, interface_fe_idx1)
 G2 = build_edge_map_simple(fens_i.xyz, fens2.xyz, boundary_fes2.conn, interface_fe_idx2 )
 
@@ -200,12 +202,13 @@ if not os.path.exists(script_filename):
 # vtkexport(f"{script_filename}/left", fes1, geom1, {"temp":T1})
 # vtkexport(f"{script_filename}/right", fes2, geom2, {"temp":T2})
 
-exact =  lambda x: 1.0 + x[0] ** 2 + 2 * x[1] ** 2
+exact =  lambda x: x[0]*x[1]
 L2_err1 = L2_err(femm1, geom1, T1, exact)
 L2_err2 = L2_err(femm2, geom2, T2, exact)
 
 vtkexport(f"{script_filename}/left", fes1, geom1, {"temp":T1, "err":L2_err1})
 vtkexport(f"{script_filename}/right", fes2, geom2, {"temp":T2, "err":L2_err2})
+from mergevtk import merge_vtk_files_common_fields
 merge_vtk_files_common_fields(f"{script_filename}/left.vtu", f"{script_filename}/right.vtu", f"{script_filename}/merged.vtu")
 
 mu.scatter_sysvec(U[K1.shape[0]+K2.shape[0]:])
@@ -227,15 +230,14 @@ import matplotlib.pyplot as plt
 #
 # print(f"Average of lambda 1: {np.sum(lmbd1)/len(lmbd1)}")
 # print(f"Average of lambda 2: {np.sum(lmbd2)/len(lmbd2)}")
-plt.stairs((U[K1.shape[0]+K2.shape[0]:]),fens_i.xyz[:,1], baseline=None,  label="lambda f")
+plt.step(fens_i.xyz[:-1,1], (U[K1.shape[0]+K2.shape[0]:]), where='pre', label="lambda f")
 # # plt.plot(fens1.xyz[boundary_nodes1, 1],lmbd1, label="lambda 1")
 # # plt.plot(fens2.xyz[boundary_nodes2, 1], lmbd2, label="lambda 2")
 plt.legend()
 plt.title("Lagrange multipliers and their projections\n NBC on top and bottom")
 plt.xlabel("y along the interface")
 plt.ylabel("Lagrange multiplier")
-
-plt.ylim(-2,0)
+# # plt.ylim(-50,50)
 # # if(np.max(lmbd1)-np.min(lmbd1))<0.2 :
 # #     plt.ylim(-2,0)
 #
@@ -243,10 +245,7 @@ plt.show()
 
 
 x = np.linspace(0.0, 1.0, 100)
-x0 = np.zeros_like(x)
-x05 = np.zeros_like(x)+0.5
-x1 = np.zeros_like(x)+1.0
-y = 1.25+2*x*x
+y = 0.5*x
 plt.plot(fens1.xyz[fenode_select(fens1, box_),1], T1.values[fenode_select(fens1, box_)], "-x", label="T1")
 plt.plot(fens2.xyz[fenode_select(fens2, box_),1], T2.values[fenode_select(fens2, box_)], "o", linestyle='--',label="T2")
 plt.plot(x,y, label="exact")

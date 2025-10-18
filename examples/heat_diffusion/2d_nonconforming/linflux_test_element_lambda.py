@@ -29,7 +29,7 @@ from spyfe.meshing.generators.intervals import l2_blockx_2D
 from spyfe.meshing.selection import connected_nodes, fe_select, fenode_select
 from matplotlib.path import Path
 from scipy.sparse import bmat
-from utilities import assemble_gamma, L2_err
+from utilities import *
 
 
 
@@ -124,7 +124,7 @@ F2 += femm_nbc2.distrib_loads(geom2, T2, fi_top, 3)
 ########################################################################################################################
 # interface
 ########################################################################################################################
-N_i = 100
+N_i = 50
 ys_i = np.linspace(0.0, 1.0, N_i+1)  # x-coordinates
 xs_i = np.full_like(ys_i, 0.5)     # y-coordinates (constant)
 fens_i, fes_i = l2_blockx_2D(xs_i, ys_i)
@@ -208,7 +208,6 @@ L2_err2 = L2_err(femm2, geom2, T2, exact)
 
 vtkexport(f"{script_filename}/left", fes1, geom1, {"temp":T1, "err":L2_err1})
 vtkexport(f"{script_filename}/right", fes2, geom2, {"temp":T2, "err":L2_err2})
-from mergevtk import merge_vtk_files_common_fields
 merge_vtk_files_common_fields(f"{script_filename}/left.vtu", f"{script_filename}/right.vtu", f"{script_filename}/merged.vtu")
 
 mu.scatter_sysvec(U[K1.shape[0]+K2.shape[0]:])
