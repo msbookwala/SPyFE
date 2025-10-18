@@ -154,8 +154,8 @@ print(f"Lambda values : {mu.values.T}")
 print(f"sum of lambda values = {np.sum(mu.values)}")
 import matplotlib.pyplot as plt
 plt.stairs((U[K1.shape[0]+K2.shape[0]:]),fens_i.xyz[:,1], baseline=None,  label="lambda f")
-# # plt.plot(fens1.xyz[boundary_nodes1, 1],lmbd1, label="lambda 1")
-# # plt.plot(fens2.xyz[boundary_nodes2, 1], lmbd2, label="lambda 2")
+# # plt.plot(fens1.xyz[iedge_nodes1, 1],lmbd1, label="lambda 1")
+# # plt.plot(fens2.xyz[iedge_nodes2, 1], lmbd2, label="lambda 2")
 plt.legend()
 plt.title("Lagrange multipliers and their projections\n NBC on top and bottom")
 plt.xlabel("y along the interface")
@@ -165,8 +165,8 @@ plt.ylabel("Lagrange multiplier")
 # #     plt.ylim(-2,0)
 #
 plt.show()
-# g1_plus = np.linalg.pinv(g1)[boundary_nodes1, :]
-# g2_plus = np.linalg.pinv(g2)[boundary_nodes2, :]
+# g1_plus = np.linalg.pinv(g1)[iedge_nodes1, :]
+# g2_plus = np.linalg.pinv(g2)[iedge_nodes2, :]
 # lmbd_f = U[K1.shape[0]+K2.shape[0]:]
 # print(f"Lambda values : {U[K1.shape[0]+K2.shape[0]:]}")
 # print(f"sum of lambda values = {np.sum(U[K1.shape[0]+K2.shape[0]:])/len(U[K1.shape[0]+K2.shape[0]:])}")
@@ -176,8 +176,8 @@ plt.show()
 #
 # import matplotlib.pyplot as plt
 # plt.plot(fens_i.xyz[:, 1],(U[K1.shape[0]+K2.shape[0]:]), label="lambda f")
-# plt.plot(fens1.xyz[boundary_nodes1, 1],lmbd1, label="lambda 1")
-# plt.plot(fens2.xyz[boundary_nodes2, 1], lmbd2, label="lambda 2")
+# plt.plot(fens1.xyz[iedge_nodes1, 1],lmbd1, label="lambda 1")
+# plt.plot(fens2.xyz[iedge_nodes2, 1], lmbd2, label="lambda 2")
 # plt.legend()
 # plt.show()
 #

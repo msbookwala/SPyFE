@@ -36,7 +36,7 @@ from spyfe.meshing.generators.triangles import t3_ablock
 
 
 
-N_elem1 = 3
+N_elem1 = 8
 xs1 = np.linspace(0.0, 1.0, int(N_elem1/2)+1)
 ys1 = np.linspace(0.0, 2.0, N_elem1+1)
 fens1, fes1 = q4_blockx(xs1, ys1)
@@ -58,7 +58,7 @@ fi_1 = ForceIntensity(magn=lambda x, J: -1.0 if np.isclose(x[0], 0.0) else 0.0)
 F1 += femm_left.distrib_loads(geom1, T1, fi_1, 3)
 
 
-N_elem2 = 2
+N_elem2 = 10
 xs2 = np.linspace(1.0, 2.0, int(N_elem2/2)+1)
 ys2 = np.linspace(0.0, 2.0, N_elem2+1)
 fens2, fes2 = q4_blockx(xs2, ys2)
@@ -82,7 +82,7 @@ femm_right = FEMMHeatDiff(fes = boundary_fes2, material=m, integration_rule=Gaus
 fi_2 = ForceIntensity(magn=lambda x, J: 1.0 if np.isclose(x[0], 2.0) else 0.0)
 F2 += femm_right.distrib_loads(geom2, T2, fi_2, 3)
 
-N_elem_i =2
+N_elem_i =8
 # ys_i = np.unique(np.hstack([fens2.xyz[:, 1],fens1.xyz[:, 1]]))
 ys_i = np.linspace(0.0, 2.0, N_elem_i+1)  # x-coordinates
 xs_i = np.full_like(ys_i, 1.0)     # y-coordinates (constant)
@@ -171,8 +171,8 @@ print(f"Lambda values : {mu.values.T}")
 print(f"sum of lambda values = {np.sum(mu.values)}")
 import matplotlib.pyplot as plt
 plt.stairs((U[K1.shape[0]+K2.shape[0]:]),fens_i.xyz[:,1], baseline=None,  label="lambda f")
-# # plt.plot(fens1.xyz[boundary_nodes1, 1],lmbd1, label="lambda 1")
-# # plt.plot(fens2.xyz[boundary_nodes2, 1], lmbd2, label="lambda 2")
+# # plt.plot(fens1.xyz[iedge_nodes1, 1],lmbd1, label="lambda 1")
+# # plt.plot(fens2.xyz[iedge_nodes2, 1], lmbd2, label="lambda 2")
 plt.legend()
 plt.title("Lagrange multipliers and their projections\n NBC on top and bottom")
 plt.xlabel("y along the interface")
@@ -182,8 +182,8 @@ plt.ylabel("Lagrange multiplier")
 # #     plt.ylim(-2,0)
 #
 plt.show()
-# g1_plus = np.linalg.pinv(g1)[boundary_nodes1, :]
-# g2_plus = np.linalg.pinv(g2)[boundary_nodes2, :]
+# g1_plus = np.linalg.pinv(g1)[iedge_nodes1, :]
+# g2_plus = np.linalg.pinv(g2)[iedge_nodes2, :]
 # lmbd_f = U[K1.shape[0]+K2.shape[0]:]
 # print(f"Lambda values : {U[K1.shape[0]+K2.shape[0]:]}")
 # print(f"sum of lambda values = {np.sum(U[K1.shape[0]+K2.shape[0]:])/len(U[K1.shape[0]+K2.shape[0]:])}")
@@ -193,8 +193,8 @@ plt.show()
 #
 # import matplotlib.pyplot as plt
 # plt.plot(fens_i.xyz[:, 1],(U[K1.shape[0]+K2.shape[0]:]), label="lambda f")
-# plt.plot(fens1.xyz[boundary_nodes1, 1],lmbd1, label="lambda 1")
-# plt.plot(fens2.xyz[boundary_nodes2, 1], lmbd2, label="lambda 2")
+# plt.plot(fens1.xyz[iedge_nodes1, 1],lmbd1, label="lambda 1")
+# plt.plot(fens2.xyz[iedge_nodes2, 1], lmbd2, label="lambda 2")
 # plt.legend()
 # plt.show()
 #

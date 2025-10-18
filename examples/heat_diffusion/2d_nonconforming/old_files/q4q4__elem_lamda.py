@@ -56,7 +56,7 @@ q = lambda x, y: 4*y
 ########################################################################################################################
 # subdomain 1
 ########################################################################################################################
-N1 = 40
+N1 = 2
 xs1 = np.linspace(0.0, 0.5, int(N1 / 2) + 1)
 ys1 = np.linspace(0.0, 1.0, N1 + 1)
 fens1, fes1 = q4_blockx(xs1, ys1)
@@ -90,7 +90,7 @@ F1 += femm_nbc1.distrib_loads(geom1, T1, fi_top, 3)
 ########################################################################################################################
 # subdomain 2
 ########################################################################################################################
-N2 = 23
+N2 = 3
 xs2 = np.linspace(0.5, 1.0, int(N2 / 2) + 1)
 ys2 = np.linspace(0.0, 1.0, N2 + 1)
 fens2, fes2 = q4_blockx(xs2, ys2)
@@ -122,7 +122,7 @@ F2 += femm_nbc2.distrib_loads(geom2, T2, fi_top, 3)
 # interface
 ########################################################################################################################
 N_i = min(N1, N2)
-N_i = 3
+# N_i = 3
 ys_i = np.linspace(0.0, 1.0, N_i+1)  # x-coordinates
 xs_i = np.full_like(ys_i, 0.5)     # y-coordinates (constant)
 fens_i, fes_i = l2_blockx_2D(xs_i, ys_i)
@@ -217,8 +217,8 @@ import matplotlib.pyplot as plt
 # plt.plot((U[K1.shape[0]+K2.shape[0]:]))
 # plt.show()
 
-# g1_plus = np.linalg.pinv(g1)[boundary_nodes1, :]
-# g2_plus = np.linalg.pinv(g2)[boundary_nodes2, :]
+# g1_plus = np.linalg.pinv(g1)[iedge_nodes1, :]
+# g2_plus = np.linalg.pinv(g2)[iedge_nodes2, :]
 # lmbd_f = U[K1.shape[0]+K2.shape[0]:]
 # print(f"Lambda values : {U[K1.shape[0]+K2.shape[0]:]}")
 # print(f"avg of lambda values = {np.sum(lmbd_f)/len(lmbd_f)}")
@@ -229,8 +229,8 @@ import matplotlib.pyplot as plt
 # print(f"Average of lambda 1: {np.sum(lmbd1)/len(lmbd1)}")
 # print(f"Average of lambda 2: {np.sum(lmbd2)/len(lmbd2)}")
 plt.stairs((U[K1.shape[0]+K2.shape[0]:]),fens_i.xyz[:,1], baseline=None,  label="lambda f")
-# # plt.plot(fens1.xyz[boundary_nodes1, 1],lmbd1, label="lambda 1")
-# # plt.plot(fens2.xyz[boundary_nodes2, 1], lmbd2, label="lambda 2")
+# # plt.plot(fens1.xyz[iedge_nodes1, 1],lmbd1, label="lambda 1")
+# # plt.plot(fens2.xyz[iedge_nodes2, 1], lmbd2, label="lambda 2")
 plt.legend()
 plt.title("Lagrange multipliers and their projections\n NBC on top and bottom")
 plt.xlabel("y along the interface")
