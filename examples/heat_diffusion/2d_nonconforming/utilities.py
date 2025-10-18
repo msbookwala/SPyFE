@@ -83,3 +83,62 @@ def L2_err(femm, geom, temp, sol):
             err.values[i] += (jac * w[j]) * (u-uh)**2
         err.values[i] = np.sqrt(err.values[i])
     return err
+
+
+import numpy as np
+from scipy.sparse import csr_matrix
+
+def build_edge_map_simple(src_edge_xyz, tgt_xyz, tgt_conn, edge_elem_idx):
+    """
+    Build A such that b = A @ L, where:
+      - L are piecewise constant values on the source edge elements
+      - b are nodal loads on the target 2D mesh (P1)
+    Only nodes on the specified edge contribute; others are zero.
+
+    Parameters
+    ----------
+    src_edge_xyz : (m+1,2) array
+        Coordinates of the source edge nodes (ordered along the edge).
+    tgt_xyz : (n,2) array
+        Coordinates of all target mesh nodes.
+    tgt_conn : (n_edge_elems,2) int array
+        Connectivity of all boundary elements (edges) in the 2D mesh.
+    edge_elem_idx : 1D array of int
+        Indices of the target boundary elements belonging to the interface edge.
+
+    Returns
+    -------
+    A : (n_tgt_nodes, m_src_elems) csr_matrix
+        Mapping matrix; b = A @ L
+    """
+    # Source arclength coordinate
+    s_src = np.zeros(len(src_edge_xyz))
+    s_src[1:] = np.cumsum(np.linalg.norm(np.diff(src_edge_xyz, axis=0), axis=1))
+    src_breaks = s_src
+
+    # Target edge coordinates and arclength
+    edge_conn = tgt_conn[edge_elem_idx]
+    edge_nodes = np.unique(edge_conn.flatten())
+    edge_xyz = tgt_xyz[edge_nodes]
+    s_tgt = np.zeros(len(edge_nodes))
+    s_tgt[1:] = np.cumsum(np.linalg.norm(np.diff(edge_xyz, axis=0), axis=1))
+
+    # Build 1D overlap operator (same as earlier)
+    m = len(src_breaks) - 1
+    n_edge = len(edge_nodes)
+    A_edge = np.zeros((n_edge, m))
+    for i in range(m):
+        a, b = src_breaks[i], src_breaks[i+1]
+        for j in range(n_edge - 1):
+            xt0, xt1 = s_tgt[j], s_tgt[j+1]
+            h = xt1 - xt0
+            a_ = max(a, xt0); b_ = min(b, xt1)
+            if b_ <= a_: continue
+            A_edge[j, i]   += ((xt1*b_ - 0.5*b_**2) - (xt1*a_ - 0.5*a_**2)) / h
+            A_edge[j+1, i] += ((0.5*b_**2 - xt0*b_) - (0.5*a_**2 - xt0*a_)) / h
+
+    # Embed into full mesh
+    A = np.zeros((tgt_xyz.shape[0], m))
+    A[edge_nodes, :] = A_edge
+    return csr_matrix(A)
+

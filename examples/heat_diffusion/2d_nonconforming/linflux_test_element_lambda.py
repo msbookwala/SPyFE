@@ -59,7 +59,7 @@ q = lambda x, y: x
 ########################################################################################################################
 # subdomain 1
 ########################################################################################################################
-N1 = 10
+N1 = 97
 xs1 = np.linspace(0.0, 0.5, int(N1 / 2) + 1)
 ys1 = np.linspace(0.0, 1.0, N1 + 1)
 fens1, fes1 = q4_blockx(xs1, ys1)
@@ -93,7 +93,7 @@ F1 += femm_nbc1.distrib_loads(geom1, T1, fi_top, 3)
 ########################################################################################################################
 # subdomain 2
 ########################################################################################################################
-N2 = 8
+N2 = 100
 xs2 = np.linspace(0.5, 1.0, int(N2 / 2) + 1)
 ys2 = np.linspace(0.0, 1.0, N2 + 1)
 fens2, fes2 = q4_blockx(xs2, ys2)
@@ -124,20 +124,20 @@ F2 += femm_nbc2.distrib_loads(geom2, T2, fi_top, 3)
 ########################################################################################################################
 # interface
 ########################################################################################################################
-# N_i = 100
-# ys_i = np.linspace(0.0, 1.0, N_i+1)  # x-coordinates
-# xs_i = np.full_like(ys_i, 0.5)     # y-coordinates (constant)
-# fens_i, fes_i = l2_blockx_2D(xs_i, ys_i)
+N_i = 100
+ys_i = np.linspace(0.0, 1.0, N_i+1)  # x-coordinates
+xs_i = np.full_like(ys_i, 0.5)     # y-coordinates (constant)
+fens_i, fes_i = l2_blockx_2D(xs_i, ys_i)
 
 
 # # nodes to create frame including the ones that go for dbc
 
-bn1 = fenode_select(fens1, box_)
-bn2 = fenode_select(fens2, box_)
-xys = np.unique(np.round(np.vstack([fens1.xyz[bn1], fens2.xyz[bn2]]), 7), axis=0)
-ys_i = xys[:,1]
-xs_i = xys[:,0]
-fens_i, fes_i = l2_blockx_2D(xs_i, ys_i)
+# bn1 = fenode_select(fens1, box_)
+# bn2 = fenode_select(fens2, box_)
+# xys = np.unique(np.round(np.vstack([fens1.xyz[bn1], fens2.xyz[bn2]]), 7), axis=0)
+# ys_i = xys[:,1]
+# xs_i = xys[:,0]
+# fens_i, fes_i = l2_blockx_2D(xs_i, ys_i)
 
 mu =  ElementalField(nelems=fes_i.count(), dim=1)
 geom_i = NodalField(fens=fens_i)
@@ -160,15 +160,29 @@ dbc_lam_f = -B1_p@T1_p - B2_p@T2_p
 # remove dbc_nodes columns
 B1 = np.delete(B1, dbc_nodes1, axis=1)
 B2 = np.delete(B2, dbc_nodes2, axis=1)
+from utilities import build_edge_map_simple
+G1 = build_edge_map_simple(fens_i.xyz, fens1.xyz, boundary_fes1.conn, interface_fe_idx1)
+G2 = build_edge_map_simple(fens_i.xyz, fens2.xyz, boundary_fes2.conn, interface_fe_idx2 )
+
+
+B1T = G1
+B2T = -G2
+B1T = np.delete(B1T.toarray(), dbc_nodes1, axis=0)
+B2T = np.delete(B2T.toarray(), dbc_nodes2, axis=0)
 
 # B1 = B1[:,:]
 # B2 = B2[1:-1,:]
 
 
 
+# A = bmat([
+#     [K1,    None,   B1.T],
+#     [None,  K2,     B2.T],
+#     [B1,    B2,     10e-5*np.eye(B1.shape[0])],
+# ], format='csr')
 A = bmat([
-    [K1,    None,   B1.T],
-    [None,  K2,     B2.T],
+    [K1,    None,   B1T],
+    [None,  K2,     B2T],
     [B1,    B2,     None],
 ], format='csr')
 
