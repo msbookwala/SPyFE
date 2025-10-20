@@ -141,3 +141,97 @@ def build_edge_map_simple(src_edge_xyz, tgt_xyz, tgt_conn, edge_elem_idx):
     A[edge_nodes, :] = A_edge
     return csr_matrix(A)
 
+import numpy as np
+from scipy.sparse import csr_matrix
+
+# 2-pt Gauss on [-1,1] is exact for P1×P1 products
+_GX = np.array([-1/np.sqrt(3), 1/np.sqrt(3)])
+_GW = np.array([1.0, 1.0])
+
+def _seg_length(p0, p1):
+    return np.linalg.norm(p1 - p0)
+
+def _phiP1(xi):  # frame (interface) element P1 basis at xi∈[-1,1]
+    return np.array([(1.0 - xi) * 0.5, (1.0 + xi) * 0.5])
+
+def _embed_edge_connectivity_from_ordered_nodes(N):
+    # consecutive nodes (0-1, 1-2, ..., N-2 - N-1)
+    conn = np.column_stack([np.arange(N-1, dtype=int), np.arange(1, N, dtype=int)])
+    return conn
+
+def interface_mass_matrix_P1(interface_fens):
+    """MΓ for a P1 nodal LM on the frame: block L/6 [[2,1],[1,2]] per edge."""
+    xyz = interface_fens.xyz
+    N = interface_fens.count()
+    conn = _embed_edge_connectivity_from_ordered_nodes(N)
+    rows, cols, data = [], [], []
+    for (a, b) in conn:
+        L = _seg_length(xyz[a], xyz[b])
+        rows += [a,a,b,b]
+        cols += [a,b,a,b]
+        data += [2*L/6, 1*L/6, 1*L/6, 2*L/6]
+    M = csr_matrix((data, (rows, cols)), shape=(N, N))
+    return M
+
+def cross_mass_sub_to_frame_P1(sub_fens, sub_bfes, sub_edge_idx, interface_fens):
+    """
+    C(i,j) = ∫_Γ φ_i (frame-P1) * N_j (subdomain-edge P1) ds
+    Integrates over each frame edge using 2-pt Gauss; for each quad point,
+    finds the active subdomain edge and evaluates its P1 basis.
+    """
+    xyzΓ = interface_fens.xyz
+    NΓ = interface_fens.count()
+    # frame connectivity taken as consecutive nodes
+    connΓ = _embed_edge_connectivity_from_ordered_nodes(NΓ)
+
+    C = np.zeros((NΓ, sub_fens.count()))
+
+    # subdomain interface edges (their global-node connectivity)
+    sub_conn = sub_bfes.conn[sub_edge_idx]
+    sub_xyz  = sub_fens.xyz
+
+    for (i0, i1) in connΓ:
+        p0, p1 = xyzΓ[i0], xyzΓ[i1]
+        L = _seg_length(p0, p1)
+        # map xi∈[-1,1] to physical point on the frame edge
+        for xi, w in zip(_GX, _GW):
+            # frame P1 basis at xi and physical point
+            phi = _phiP1(xi)           # [phi_i0, phi_i1]
+            s  = 0.5*(xi + 1.0)        # affine map [-1,1]→[0,1]
+            xq = (1.0 - s) * p0 + s * p1
+
+            # find the active subdomain boundary edge that contains xq
+            found = False
+            for elem in sub_conn:
+                a, b = sub_xyz[elem[0]], sub_xyz[elem[1]]
+                ab  = b - a
+                # check if xq lies on segment [a,b]
+                cross = np.cross(ab, xq - a)
+                dot   = np.dot(xq - a, ab)
+                if np.abs(cross) <= 1e-12 and 0.0 - 1e-12 <= dot <= np.dot(ab, ab) + 1e-12:
+                    # local coordinate on [a,b] in [-1,1]
+                    xi_sub = 2.0 * dot / np.dot(ab, ab) - 1.0
+                    Nj = sub_bfes.bfun(np.array([xi_sub])).flatten()  # shape (2,)
+                    # accumulate: C[i0,:] and C[i1,:]
+                    wJ = w * (L * 0.5)
+                    C[i0, elem] += phi[0] * Nj * wJ
+                    C[i1, elem] += phi[1] * Nj * wJ
+                    found = True
+                    break
+            if not found:
+                # robust fallback: snap to nearest edge if roundoff hits a vertex
+                # (optional) or raise an error
+                pass
+    return csr_matrix(C)
+
+def assemble_gamma_L2(sub_fens, sub_bfes, sub_edge_idx, interface_fens):
+    """
+    Return (Gamma, C, MΓ) with Γ = MΓ^{-1} C  (mortar/L2 projection).
+    For assembly you only need C (since B = C, G = C^T for nodal LM).
+    """
+    MΓ = interface_mass_matrix_P1(interface_fens)
+    C  = cross_mass_sub_to_frame_P1(sub_fens, sub_bfes, sub_edge_idx, interface_fens)
+    # Prefer solving with a sparse solver rather than inverting MΓ explicitly:
+    # Gamma = splu(MΓ).solve(C.toarray())
+    # But most callers can skip Γ entirely and use B=C, G=C^T.
+    return C  # we return C because that's what you should use

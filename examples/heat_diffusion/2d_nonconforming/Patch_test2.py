@@ -34,7 +34,7 @@ from scipy.integrate import trapezoid
 N_elem1 = 20
 N_elem2 = 30
 N_elem_i = min(N_elem1, N_elem2)
-# N_elem_i = 3
+N_elem_i = 3
 left_m = "q"
 right_m = "q"
 skew = 0
@@ -139,38 +139,47 @@ else:
 ########################################################################################################################
 
 # operator mapping from subdomain boundary to interface
-g1 = assemble_gamma(fens1, boundary_fes1, interface_fe_idx1, fens_i)
-g2 = assemble_gamma(fens2, boundary_fes2, interface_fe_idx2, fens_i)
+# ---- Build consistent L2 cross-mass on the interface (right side shown) ----
+# Frame nodes (already ordered by construction, but ok to recompute s):
+frame_xyz = fens_i.xyz
 
+# Right: order the *subdomain* interface nodes via connectivity
+edge_conn2 = boundary_fes2.conn[interface_fe_idx2]
+C2_edge, edge_nodes2_ordered = cross_mass_P1_frame_P1_sub(
+    frame_xyz=frame_xyz,
+    sub_xyz=fens2.xyz,
+    sub_edge_conn=edge_conn2
+)
+# Embed to full right-side node space:
+C2 = embed_cross_mass_to_full(C2_edge, edge_nodes2_ordered, fens2.count())
 
-# bottom row blocks
-###################
-B1 = M@g1
-B2 = -M@g2
-# remove dbc_nodes columns
-# B1 = np.delete(B1, dbc_nodes1, axis=1)
-B2 = np.delete(B2, dbc_nodes2, axis=1)
+# Left side similarly:
+edge_conn1 = boundary_fes1.conn[interface_fe_idx1]
+C1_edge, edge_nodes1_ordered = cross_mass_P1_frame_P1_sub(
+    frame_xyz=frame_xyz,
+    sub_xyz=fens1.xyz,
+    sub_edge_conn=edge_conn1
+)
+C1 = embed_cross_mass_to_full(C1_edge, edge_nodes1_ordered, fens1.count())
 
-# right column blocks
-###################
+# Bottom row (constraints) and right column (adjoint!) — *no other maps*:
+B1 =  C1.copy()
+B2 = -C2.copy()
+# Dirichlet handling (as you do now)
+# B1_p = B1[:, dbc_nodes1]; B2_p = B2[:, dbc_nodes2]
+# T1_p = T1.fixed_values[T1.is_fixed]; T2_p = T2.fixed_values[T2.is_fixed]
+# dbc_lam_f = -(B1_p @ T1_p) - (B2_p @ T2_p)
+# B1 = csr_matrix(np.delete(B1.toarray(), dbc_nodes1, axis=1))
+B2 = csr_matrix(np.delete(B2.toarray(), dbc_nodes2, axis=1))
 
-G1 = build_edge_map_simple(fens_i.xyz, fens1.xyz, boundary_fes1.conn, interface_fe_idx1)
-G2 = -build_edge_map_simple(fens_i.xyz, fens2.xyz, boundary_fes2.conn, interface_fe_idx2 )
-
-# G1 = np.delete(G1.toarray(), dbc_nodes1, axis=0)
-# G2 = np.delete(G2.toarray(), dbc_nodes2, axis=0)
-
-avg = np.zeros((fens_i.count()-1, fens_i.count()))
-for i in range(fens_i.count()-1):
-    avg[i,i:i+2] = 0.5
-B1T = G1@avg
-B2T = G2@avg
-B2T = np.delete(B2T, dbc_nodes2, axis=0)
+# Right column (must be adjoint!)
+G1 = B1.T
+G2 = B2.T
 
 A = bmat([
     [K1,    None,   B1.T],
-    [None,  K2,     B2T],
-    [B1,    B2T.T,     None],
+    [None,  K2,     B2.T],
+    [B1,    B2,     None],
 ], format='csr')
 
 print(f"Dim - {A.shape}\n Rank - {np.linalg.matrix_rank(A.toarray())}")

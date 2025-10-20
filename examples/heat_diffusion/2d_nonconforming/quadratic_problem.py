@@ -30,13 +30,15 @@ from utilities import *
 import pyvista as pv
 from scipy.integrate import trapezoid
 
-N_elem1 = 10
-N_elem2 = 15
+N_elem1 = 20
+N_elem2 = 30
 N_elem_i = min(N_elem1, N_elem2)
+# N_elem_i = 2
 left_m = "q"
 right_m = "t"
 skew = 0.0
-top_bc = "D"
+top_bc = "N"
+elem_lagrange= False
 
 # These are the constants in the problem, k is kappa
 boundaryf = lambda x, y: 1.0 + x ** 2 + 2 * y ** 2
@@ -73,6 +75,8 @@ geom1 = NodalField(fens=fens1)
 T1 = NodalField(nfens=fens1.count(), dim=1)
 
 if top_bc=="D":
+    # bt = [0, 0.5 - 1e-6, 1, 1]
+    # bb = [0, 0.5 - 1e-6, 0, 0]
     dbc_nodes1 = np.sort(np.unique(np.hstack([
                                      fenode_select(fens1, box_left),
                                      fenode_select(fens1, box_right),
@@ -125,6 +129,8 @@ cn2 = connected_nodes(boundary_fes2)
 geom2 = NodalField(fens=fens2)
 T2 = NodalField(nfens=fens2.count(), dim=1)
 if top_bc=="D":
+    # box_top = [0.5+1e-6,1,1,1]
+    # box_bottom = [0.5+1e-6,1,0,0]
     dbc_nodes2 = np.sort(np.unique(np.hstack([
                                      fenode_select(fens2, box_left),
                                      fenode_select(fens2, box_right),
@@ -163,12 +169,21 @@ xs_i = np.full_like(ys_i, 0.5)     # x-coordinates (constant)
 fens_i, fes_i = l2_blockx_2D(xs_i, ys_i)
 fens_i.xyz[:, 0] +=  fens_i.xyz[:, 0]*(fens_i.xyz[:, 1]-0.5) * skew
 
+if elem_lagrange:
+    mu =  ElementalField(nelems=fes_i.count(), dim=1)
+    n_lambda = fes_i.count()
+else:
+    mu =  NodalField(nfens=fens_i.count(), dim=1)
+    n_lambda = fens_i.count()
 
-mu =  ElementalField(nelems=fes_i.count(), dim=1)
 geom_i = NodalField(fens=fens_i)
 mu.numberdofs()
+
 femm_i = FEMMHeatDiff(fes = fes_i, material=m, integration_rule=GaussRule(dim=1, order=2))
-M = femm_i.lam_mat(geom_i, mu)
+if elem_lagrange:
+    M = femm_i.lam_mat(geom_i, mu)
+else:
+    M = femm_i.mass(geom_i, mu)
 
 ########################################################################################################################
 # Mapping
@@ -183,6 +198,13 @@ g2 = assemble_gamma(fens2, boundary_fes2, interface_fe_idx2, fens_i)
 ###################
 B1 = M@g1
 B2 = -M@g2
+
+B1_p  = B1[:, dbc_nodes1]
+B2_p  = B2[:, dbc_nodes2]
+T1_p = T1.fixed_values[T1.is_fixed]
+T2_p = T2.fixed_values[T2.is_fixed]
+dbc_lam_f = -B1_p@T1_p - B2_p@T2_p
+
 # remove dbc_nodes columns
 B1 = np.delete(B1, dbc_nodes1, axis=1)
 B2 = np.delete(B2, dbc_nodes2, axis=1)
@@ -193,17 +215,29 @@ B2 = np.delete(B2, dbc_nodes2, axis=1)
 G1 = build_edge_map_simple(fens_i.xyz, fens1.xyz, boundary_fes1.conn, interface_fe_idx1)
 G2 = -build_edge_map_simple(fens_i.xyz, fens2.xyz, boundary_fes2.conn, interface_fe_idx2 )
 
+
+avg = np.zeros((fens_i.count()-1, fens_i.count()))
+for i in range(fens_i.count()-1):
+    avg[i,i:i+2] = 0.5
+B1T = G1@avg
+B2T = G2@avg
+B1T = np.delete(B1T, dbc_nodes1, axis=0)
+B2T = np.delete(B2T, dbc_nodes2, axis=0)
 G1 = np.delete(G1.toarray(), dbc_nodes1, axis=0)
 G2 = np.delete(G2.toarray(), dbc_nodes2, axis=0)
 
 A = bmat([
-    [K1,    None,   G1],
-    [None,  K2,     G2],
-    [B1,    B2,     None],
+    [K1,    None,   B1.T],
+    [None,  K2,     B2T],
+    [B1,    B2T.T,     None],
 ], format='csr')
-
+# A = bmat([
+#     [K1,    None,   G1],
+#     [None,  K2,     G2],
+#     [B1,    B2,     None],
+# ], format='csr')
 print(f"Dim - {A.shape}\n Rank - {np.linalg.matrix_rank(A.toarray())}")
-F = np.concatenate([F1, F2, np.zeros(fes_i.count())])
+F = np.concatenate([F1, F2, np.zeros(n_lambda)])
 U = spsolve(A, F)
 ########################################################################################################################
 # Post Processing
@@ -211,6 +245,8 @@ U = spsolve(A, F)
 # Output files
 T1.scatter_sysvec(U[0:K1.shape[0]])
 T2.scatter_sysvec(U[K1.shape[0]:K1.shape[0]+K2.shape[0]])
+mu.scatter_sysvec(U[K1.shape[0]+K2.shape[0]:])
+
 
 script_path = __file__
 script_filename = os.path.basename(script_path)[:-3]
@@ -220,14 +256,6 @@ subdir = f"{left_m}-{right_m}-{N_elem1}-{N_elem_i}-{N_elem2}-skew-{int(100*skew)
 script_filename = os.path.join(script_filename, subdir)
 if not os.path.exists(script_filename):
     os.mkdir(script_filename)
-
-
-
-T1.scatter_sysvec(U[0:K1.shape[0]])
-T2.scatter_sysvec(U[K1.shape[0]:K1.shape[0]+K2.shape[0]])
-
-
-
 
 exact =  lambda x: 1.0 + np.pow(x[0],2 )+ 2 * np.pow(x[1], 2)
 L2_err1 = L2_err(femm1, geom1, T1, exact)
@@ -240,11 +268,14 @@ print(f"Maximum L2 error on left = {np.max(L2_err1.values)} \n"
 
 
 # plotting lagrange multiplier
-mu.scatter_sysvec(U[K1.shape[0]+K2.shape[0]:])
+
 print(f"Lambda values : {mu.values.T}")
 print(f"sum of lambda values = {np.sum(mu.values)}")
 import matplotlib.pyplot as plt
-plt.stairs((U[K1.shape[0]+K2.shape[0]:]),fens_i.xyz[:,1], baseline=None,  label="lambda f")
+if elem_lagrange:
+    plt.stairs(mu.values.flatten(), fens_i.xyz[:,1], baseline=None,  label="lambda f")
+else:
+    plt.plot(fens_i.xyz[:,1], mu.values.flatten(),   label="lambda f")
 plt.legend()
 plt.title("Lagrange multipliers and their projections\n NBC on top and bottom")
 plt.xlabel("y along the interface")
@@ -252,10 +283,6 @@ plt.ylabel("Lagrange multiplier")
 # # plt.ylim(-50,50)
 plt.savefig(f"{script_filename}/lagrange.png")
 plt.show()
-
-
-
-
 
 # plotting solution along the interface:
 freq = 100
