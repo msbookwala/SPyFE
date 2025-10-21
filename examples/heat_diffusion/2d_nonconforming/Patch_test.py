@@ -38,7 +38,7 @@ N_elem_i = min(N_elem1, N_elem2)
 left_m = "q"
 right_m = "q"
 skew = 0
-elem_lagrange = False
+elem_lagrange = True
 
 exact =  lambda x: x[0]-1
 k = 1.0  # thermal conductivity
@@ -128,55 +128,52 @@ else:
 geom_i = NodalField(fens=fens_i)
 mu.numberdofs()
 
-femm_i = FEMMHeatDiff(fes = fes_i, material=m, integration_rule=GaussRule(dim=1, order=2))
-if elem_lagrange:
-    M = femm_i.lam_mat(geom_i, mu)
-else:
-    M = femm_i.mass(geom_i, mu)
+# femm_i = FEMMHeatDiff(fes = fes_i, material=m, integration_rule=GaussRule(dim=1, order=2))
+# if elem_lagrange:
+#     M = femm_i.lam_mat(geom_i, mu)
+# else:
+#     M = femm_i.mass(geom_i, mu)
 
 ########################################################################################################################
 # Mapping
 ########################################################################################################################
 
-# operator mapping from subdomain boundary to interface
-g1 = assemble_gamma(fens1, boundary_fes1, interface_fe_idx1, fens_i)
-g2 = assemble_gamma(fens2, boundary_fes2, interface_fe_idx2, fens_i)
+frame_xyz = fens_i.xyz
+if elem_lagrange==False:
+
+    edge_conn2 = boundary_fes2.conn[interface_fe_idx2]
+    C2_edge, edge_nodes2_ordered = cross_mass_P1_frame_P1_sub(frame_xyz, fens2.xyz, edge_conn2)
+    C2 = -embed_cross_mass_to_full(C2_edge, edge_nodes2_ordered, fens2.count())
+
+    edge_conn1 = boundary_fes1.conn[interface_fe_idx1]
+    C1_edge, edge_nodes1_ordered = cross_mass_P1_frame_P1_sub(frame_xyz, fens1.xyz, edge_conn1)
+    C1 = embed_cross_mass_to_full(C1_edge, edge_nodes1_ordered, fens1.count())
+
+else:
+    C1 = build_p0p1_interpolator_frame_to_sub_full__no_reuse(frame_xyz, fens1.xyz, boundary_fes1.conn,
+                                                             interface_fe_idx1)
+    C2 = -build_p0p1_interpolator_frame_to_sub_full__no_reuse(frame_xyz, fens2.xyz, boundary_fes2.conn,
+                                                              interface_fe_idx2)
 
 
-# bottom row blocks
-###################
-B1 = M@g1
-B2 = -M@g2
-# remove dbc_nodes columns
-# B1 = np.delete(B1, dbc_nodes1, axis=1)
-B2 = np.delete(B2, dbc_nodes2, axis=1)
-
-# right column blocks
-###################
-
-G1 = build_edge_map_simple(fens_i.xyz, fens1.xyz, boundary_fes1.conn, interface_fe_idx1)
-G2 = -build_edge_map_simple(fens_i.xyz, fens2.xyz, boundary_fes2.conn, interface_fe_idx2 )
-
-# G1 = np.delete(G1.toarray(), dbc_nodes1, axis=0)
-# G2 = np.delete(G2.toarray(), dbc_nodes2, axis=0)
-
-avg = np.zeros((fens_i.count()-1, fens_i.count()))
-for i in range(fens_i.count()-1):
-    avg[i,i:i+2] = 0.5
-B1T = G1@avg
-B2T = G2@avg
-B2T = np.delete(B2T, dbc_nodes2, axis=0)
+# C1_p = C1[:, dbc_nodes1]
+C2_p = C2[:, dbc_nodes2]
+T1_p = T1.fixed_values[T1.is_fixed]
+T2_p = T2.fixed_values[T2.is_fixed]
+dbc_lam_f = - (C2_p @ T2_p)
+C2 = csr_matrix(np.delete(C2.toarray(), dbc_nodes2, axis = 1))
+# C1 = csr_matrix(np.delete(C1.toarray(), dbc_nodes1, axis = 1))
 
 A = bmat([
-    [K1,    None,   B1.T],
-    [None,  K2,     B2T],
-    [B1,    B2T.T,     None],
+    [K1,    None,   C1.T],
+    [None,  K2,     C2.T],
+    [C1,    C2,     None],
 ], format='csr')
 
 print(f"Dim - {A.shape}\n Rank - {np.linalg.matrix_rank(A.toarray())}")
-
-F = np.concatenate([F1, F2, np.zeros(n_lambda)])
+F = np.concatenate([F1, F2, dbc_lam_f])
 U = spsolve(A, F)
+# U = cg(A, F, rtol=1e-10)[0]
 
 ########################################################################################################################
 # Post Processing
@@ -190,7 +187,7 @@ script_path = __file__
 script_filename = os.path.basename(script_path)[:-3]
 if not os.path.exists(script_filename):
     os.mkdir(script_filename)
-subdir = f"{left_m}-{right_m}-{N_elem1}-{N_elem_i}-{N_elem2}-skew-{int(100*skew)}"
+subdir = f"{left_m}-{right_m}-{N_elem1}-{N_elem_i}-{N_elem2}-skew-{int(100*skew)}-{elem_lagrange}"
 script_filename = os.path.join(script_filename, subdir)
 if not os.path.exists(script_filename):
     os.mkdir(script_filename)

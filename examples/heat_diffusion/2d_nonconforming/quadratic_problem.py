@@ -26,19 +26,20 @@ from spyfe.meshing.generators.intervals import l2_blockx_2D
 from spyfe.meshing.selection import connected_nodes, fe_select, fenode_select
 from matplotlib.path import Path
 from scipy.sparse import bmat
+from scipy.sparse.linalg import cg
 from utilities import *
 import pyvista as pv
 from scipy.integrate import trapezoid
 
-N_elem1 = 20
-N_elem2 = 30
+N_elem1 = 2
+N_elem2 = 3
 N_elem_i = min(N_elem1, N_elem2)
-# N_elem_i = 2
+# N_elem_i = 20
 left_m = "q"
 right_m = "t"
 skew = 0.0
-top_bc = "N"
-elem_lagrange= False
+top_bc = "D"
+elem_lagrange= True
 
 # These are the constants in the problem, k is kappa
 boundaryf = lambda x, y: 1.0 + x ** 2 + 2 * y ** 2
@@ -60,6 +61,8 @@ box_bottom = np.array([1.0,0.0,0.0,0.0])
 if left_m == "q":
     xs1 = np.linspace(0.0, 0.5, int(N_elem1/2)+1)
     ys1 = np.linspace(0.0, 1.0, N_elem1+1)
+
+
     fens1, fes1 = q4_blockx(xs1, ys1)
 else:
     fens1, fes1 = t3_ablock(1, 2, int(N_elem1/2), N_elem1)
@@ -129,8 +132,6 @@ cn2 = connected_nodes(boundary_fes2)
 geom2 = NodalField(fens=fens2)
 T2 = NodalField(nfens=fens2.count(), dim=1)
 if top_bc=="D":
-    # box_top = [0.5+1e-6,1,1,1]
-    # box_bottom = [0.5+1e-6,1,0,0]
     dbc_nodes2 = np.sort(np.unique(np.hstack([
                                      fenode_select(fens2, box_left),
                                      fenode_select(fens2, box_right),
@@ -166,6 +167,11 @@ if top_bc=="N":
 ########################################################################################################################
 ys_i = np.linspace(0.0, 1.0, N_elem_i+1)  # y-coordinates
 xs_i = np.full_like(ys_i, 0.5)     # x-coordinates (constant)
+
+# xys = np.unique(np.round(np.vstack([fens1.xyz[iedge_nodes1], fens2.xyz[iedge_nodes2]]), 7), axis=0)
+# ys_i = xys[:,1]
+# xs_i = xys[:,0]
+
 fens_i, fes_i = l2_blockx_2D(xs_i, ys_i)
 fens_i.xyz[:, 0] +=  fens_i.xyz[:, 0]*(fens_i.xyz[:, 1]-0.5) * skew
 
@@ -178,67 +184,53 @@ else:
 
 geom_i = NodalField(fens=fens_i)
 mu.numberdofs()
-
-femm_i = FEMMHeatDiff(fes = fes_i, material=m, integration_rule=GaussRule(dim=1, order=2))
-if elem_lagrange:
-    M = femm_i.lam_mat(geom_i, mu)
-else:
-    M = femm_i.mass(geom_i, mu)
+#
+# femm_i = FEMMHeatDiff(fes = fes_i, material=m, integration_rule=GaussRule(dim=1, order=2))
+# if elem_lagrange:
+#     M = femm_i.lam_mat(geom_i, mu)
+# else:
+#     M = femm_i.mass(geom_i, mu)
 
 ########################################################################################################################
 # Mapping
 ########################################################################################################################
 
-# operator mapping from subdomain boundary to interface
-g1 = assemble_gamma(fens1, boundary_fes1, interface_fe_idx1, fens_i)
-g2 = assemble_gamma(fens2, boundary_fes2, interface_fe_idx2, fens_i)
+frame_xyz = fens_i.xyz
+if elem_lagrange==False:
+
+    edge_conn2 = boundary_fes2.conn[interface_fe_idx2]
+    C2_edge, edge_nodes2_ordered = cross_mass_P1_frame_P1_sub(frame_xyz, fens2.xyz, edge_conn2)
+    C2 = -embed_cross_mass_to_full(C2_edge, edge_nodes2_ordered, fens2.count())
+
+    edge_conn1 = boundary_fes1.conn[interface_fe_idx1]
+    C1_edge, edge_nodes1_ordered = cross_mass_P1_frame_P1_sub(frame_xyz, fens1.xyz, edge_conn1)
+    C1 = embed_cross_mass_to_full(C1_edge, edge_nodes1_ordered, fens1.count())
+
+else:
+    C1 = build_p0p1_interpolator_frame_to_sub_full__no_reuse(frame_xyz, fens1.xyz, boundary_fes1.conn,
+                                                             interface_fe_idx1)
+    C2 = -build_p0p1_interpolator_frame_to_sub_full__no_reuse(frame_xyz, fens2.xyz, boundary_fes2.conn,
+                                                              interface_fe_idx2)
 
 
-# bottom row blocks
-###################
-B1 = M@g1
-B2 = -M@g2
-
-B1_p  = B1[:, dbc_nodes1]
-B2_p  = B2[:, dbc_nodes2]
+C1_p = C1[:, dbc_nodes1]
+C2_p = C2[:, dbc_nodes2]
 T1_p = T1.fixed_values[T1.is_fixed]
 T2_p = T2.fixed_values[T2.is_fixed]
-dbc_lam_f = -B1_p@T1_p - B2_p@T2_p
-
-# remove dbc_nodes columns
-B1 = np.delete(B1, dbc_nodes1, axis=1)
-B2 = np.delete(B2, dbc_nodes2, axis=1)
-
-# right column blocks
-###################
-
-G1 = build_edge_map_simple(fens_i.xyz, fens1.xyz, boundary_fes1.conn, interface_fe_idx1)
-G2 = -build_edge_map_simple(fens_i.xyz, fens2.xyz, boundary_fes2.conn, interface_fe_idx2 )
-
-
-avg = np.zeros((fens_i.count()-1, fens_i.count()))
-for i in range(fens_i.count()-1):
-    avg[i,i:i+2] = 0.5
-B1T = G1@avg
-B2T = G2@avg
-B1T = np.delete(B1T, dbc_nodes1, axis=0)
-B2T = np.delete(B2T, dbc_nodes2, axis=0)
-G1 = np.delete(G1.toarray(), dbc_nodes1, axis=0)
-G2 = np.delete(G2.toarray(), dbc_nodes2, axis=0)
+dbc_lam_f = -(C1_p @ T1_p) - (C2_p @ T2_p)
+C2 = csr_matrix(np.delete(C2.toarray(), dbc_nodes2, axis = 1))
+C1 = csr_matrix(np.delete(C1.toarray(), dbc_nodes1, axis = 1))
 
 A = bmat([
-    [K1,    None,   B1.T],
-    [None,  K2,     B2T],
-    [B1,    B2T.T,     None],
+    [K1,    None,   C1.T],
+    [None,  K2,     C2.T],
+    [C1,    C2,     None],
 ], format='csr')
-# A = bmat([
-#     [K1,    None,   G1],
-#     [None,  K2,     G2],
-#     [B1,    B2,     None],
-# ], format='csr')
+
 print(f"Dim - {A.shape}\n Rank - {np.linalg.matrix_rank(A.toarray())}")
-F = np.concatenate([F1, F2, np.zeros(n_lambda)])
-U = spsolve(A, F)
+F = np.concatenate([F1, F2, dbc_lam_f])
+# U = spsolve(A, F)
+U = cg(A, F, rtol=1e-10)[0]
 ########################################################################################################################
 # Post Processing
 ########################################################################################################################
@@ -252,7 +244,7 @@ script_path = __file__
 script_filename = os.path.basename(script_path)[:-3]
 if not os.path.exists(script_filename):
     os.mkdir(script_filename)
-subdir = f"{left_m}-{right_m}-{N_elem1}-{N_elem_i}-{N_elem2}-skew-{int(100*skew)}-{top_bc}"
+subdir = f"{left_m}-{right_m}-{N_elem1}-{N_elem_i}-{N_elem2}-skew-{int(100*skew)}-{top_bc}-{elem_lagrange}"
 script_filename = os.path.join(script_filename, subdir)
 if not os.path.exists(script_filename):
     os.mkdir(script_filename)
@@ -361,6 +353,7 @@ if use_pv:
     plotter.link_views()
     out_png = os.path.join(script_filename, "temp_err.png")
     # plotter.screenshot(out_png)
+    # plotter.image_scale = 4
     plotter.show(screenshot=out_png)
     plotter.close()
 
