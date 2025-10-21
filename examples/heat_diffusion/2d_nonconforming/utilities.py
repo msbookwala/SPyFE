@@ -330,100 +330,7 @@ def merge_vtk_files_common_fields(
         _write_any(merged, output_path)
 
     return merged
-import numpy as np
-from scipy.sparse import csr_matrix
-
-# 2-pt Gauss on [-1,1] is exact for P1×P1 products
-_GX = np.array([-1/np.sqrt(3), 1/np.sqrt(3)])
-_GW = np.array([1.0, 1.0])
-
-def _seg_length(p0, p1):
-    return np.linalg.norm(p1 - p0)
-
-def _phiP1(xi):  # frame (interface) element P1 basis at xi∈[-1,1]
-    return np.array([(1.0 - xi) * 0.5, (1.0 + xi) * 0.5])
-
-def _embed_edge_connectivity_from_ordered_nodes(N):
-    # consecutive nodes (0-1, 1-2, ..., N-2 - N-1)
-    conn = np.column_stack([np.arange(N-1, dtype=int), np.arange(1, N, dtype=int)])
-    return conn
-
-def interface_mass_matrix_P1(interface_fens):
-    """MΓ for a P1 nodal LM on the frame: block L/6 [[2,1],[1,2]] per edge."""
-    xyz = interface_fens.xyz
-    N = interface_fens.count()
-    conn = _embed_edge_connectivity_from_ordered_nodes(N)
-    rows, cols, data = [], [], []
-    for (a, b) in conn:
-        L = _seg_length(xyz[a], xyz[b])
-        rows += [a,a,b,b]
-        cols += [a,b,a,b]
-        data += [2*L/6, 1*L/6, 1*L/6, 2*L/6]
-    M = csr_matrix((data, (rows, cols)), shape=(N, N))
-    return M
-
-def cross_mass_sub_to_frame_P1(sub_fens, sub_bfes, sub_edge_idx, interface_fens):
-    """
-    C(i,j) = ∫_Γ φ_i (frame-P1) * N_j (subdomain-edge P1) ds
-    Integrates over each frame edge using 2-pt Gauss; for each quad point,
-    finds the active subdomain edge and evaluates its P1 basis.
-    """
-    xyzΓ = interface_fens.xyz
-    NΓ = interface_fens.count()
-    # frame connectivity taken as consecutive nodes
-    connΓ = _embed_edge_connectivity_from_ordered_nodes(NΓ)
-
-    C = np.zeros((NΓ, sub_fens.count()))
-
-    # subdomain interface edges (their global-node connectivity)
-    sub_conn = sub_bfes.conn[sub_edge_idx]
-    sub_xyz  = sub_fens.xyz
-
-    for (i0, i1) in connΓ:
-        p0, p1 = xyzΓ[i0], xyzΓ[i1]
-        L = _seg_length(p0, p1)
-        # map xi∈[-1,1] to physical point on the frame edge
-        for xi, w in zip(_GX, _GW):
-            # frame P1 basis at xi and physical point
-            phi = _phiP1(xi)           # [phi_i0, phi_i1]
-            s  = 0.5*(xi + 1.0)        # affine map [-1,1]→[0,1]
-            xq = (1.0 - s) * p0 + s * p1
-
-            # find the active subdomain boundary edge that contains xq
-            found = False
-            for elem in sub_conn:
-                a, b = sub_xyz[elem[0]], sub_xyz[elem[1]]
-                ab  = b - a
-                # check if xq lies on segment [a,b]
-                cross = np.cross(ab, xq - a)
-                dot   = np.dot(xq - a, ab)
-                if np.abs(cross) <= 1e-12 and 0.0 - 1e-12 <= dot <= np.dot(ab, ab) + 1e-12:
-                    # local coordinate on [a,b] in [-1,1]
-                    xi_sub = 2.0 * dot / np.dot(ab, ab) - 1.0
-                    Nj = sub_bfes.bfun(np.array([xi_sub])).flatten()  # shape (2,)
-                    # accumulate: C[i0,:] and C[i1,:]
-                    wJ = w * (L * 0.5)
-                    C[i0, elem] += phi[0] * Nj * wJ
-                    C[i1, elem] += phi[1] * Nj * wJ
-                    found = True
-                    break
-            if not found:
-                # robust fallback: snap to nearest edge if roundoff hits a vertex
-                # (optional) or raise an error
-                pass
-    return csr_matrix(C)
-
-def assemble_gamma_L2(sub_fens, sub_bfes, sub_edge_idx, interface_fens):
-    """
-    Return (Gamma, C, MΓ) with Γ = MΓ^{-1} C  (mortar/L2 projection).
-    For assembly you only need C (since B = C, G = C^T for nodal LM).
-    """
-    MΓ = interface_mass_matrix_P1(interface_fens)
-    C  = cross_mass_sub_to_frame_P1(sub_fens, sub_bfes, sub_edge_idx, interface_fens)
-    # Prefer solving with a sparse solver rather than inverting MΓ explicitly:
-    # Gamma = splu(MΓ).solve(C.toarray())
-    # But most callers can skip Γ entirely and use B=C, G=C^T.
-    return C  # we return C because that's what you should use
+########################################################################################################################
 
 def _arclength_nodes(xyz):
     s = np.zeros(len(xyz))
@@ -433,10 +340,6 @@ def _arclength_nodes(xyz):
     return s
 
 def _lin_coeffs_on_segment(sL, sR, which):
-    """
-    Return (a0, a1) so that basis(s) = a0 + a1*s on [sL,sR].
-    which = 0 -> left node basis, which = 1 -> right node basis.
-    """
     h = (sR - sL)
     if which == 0:   # (sR - s)/h
         return (sR / h, -1.0 / h)
@@ -444,20 +347,12 @@ def _lin_coeffs_on_segment(sL, sR, which):
         return (-sL / h, 1.0 / h)
 
 def _int_linlin(a0,a1,b0,b1, sA, sB):
-    """∫_{sA}^{sB} (a0+a1*s)*(b0+b1*s) ds"""
     A = a0*b0
     B = a0*b1 + a1*b0
     C = a1*b1
     return A*(sB - sA) + 0.5*B*(sB**2 - sA**2) + (1.0/3.0)*C*(sB**3 - sA**3)
 
 def cross_mass_P1_frame_P1_sub(frame_xyz, sub_xyz, sub_edge_conn):
-    """
-    Build C: (n_frame_nodes × n_sub_edge_nodes) with entries
-       C[a,j] = ∫ φ_a(frame) * N_j(sub) ds
-    using the union partition of both meshes along arclength.
-    Returns (C, edge_nodes) where edge_nodes are the ordered subdomain
-    interface node ids corresponding to the columns of C.
-    """
     # Order subdomain interface nodes
     edge_nodes = _order_edge_nodes(sub_edge_conn)
     sub_edge_xyz = sub_xyz[edge_nodes]
@@ -494,7 +389,6 @@ def cross_mass_P1_frame_P1_sub(frame_xyz, sub_xyz, sub_edge_conn):
     return C, edge_nodes
 
 def embed_cross_mass_to_full(C_edge, edge_nodes, n_total_nodes):
-    """Embed edge‑only columns into the full subdomain node space."""
     rows, cols, data = [], [], []
     for a in range(C_edge.shape[0]):
         nz = np.nonzero(C_edge[a, :])[0]
@@ -507,11 +401,6 @@ import numpy as np
 from scipy.sparse import csr_matrix
 
 def _order_edge_nodes(edge_conn):
-    """
-    Turn an unordered set of 2-node edges into a single ordered chain of nodes.
-    Assumes the selected interface edges form one open polyline (two endpoints
-    of degree 1). If it's closed, pick either start.
-    """
     # Build adjacency
     adj = {}
     for a, b in edge_conn:
@@ -533,3 +422,117 @@ def _order_edge_nodes(edge_conn):
         if len(order) > len(adj):  # safety
             break
     return np.array(order, dtype=int)
+
+
+
+################
+
+def p0p1_order_edge_nodes_chain__no_reuse(edge_conn: np.ndarray) -> np.ndarray:
+    adj = {}
+    for a, b in edge_conn:
+        adj.setdefault(a, []).append(b)
+        adj.setdefault(b, []).append(a)
+    ends = [n for n, nb in adj.items() if len(nb) == 1]
+    start = ends[0] if ends else edge_conn[0, 0]
+    order, prev, cur = [start], -1, start
+    while True:
+        nxts = [n for n in adj[cur] if n != prev]
+        if not nxts:
+            break
+        nxt = nxts[0]
+        order.append(nxt)
+        prev, cur = cur, nxt
+        if len(order) > len(adj):  # safety
+            break
+    return np.array(order, dtype=int)
+
+def p0p1_arclength_param__no_reuse(xyz: np.ndarray) -> np.ndarray:
+    s = np.zeros(len(xyz))
+    if len(xyz) > 1:
+        d = np.linalg.norm(np.diff(xyz, axis=0), axis=1)
+        s[1:] = np.cumsum(d)
+    return s
+
+def p0p1_lin_coeffs_on_segment__no_reuse(sL: float, sR: float, which: int) -> tuple[float, float]:
+    h = (sR - sL)
+    if h <= 0:
+        return (0.0, 0.0)
+    if which == 0:   # left-node basis (sR - s)/h
+        return (sR / h, -1.0 / h)
+    else:            # right-node basis (s - sL)/h
+        return (-sL / h, 1.0 / h)
+
+def p0p1_int_lin__no_reuse(a0: float, a1: float, A: float, B: float) -> float:
+    return a0 * (B - A) + 0.5 * a1 * (B**2 - A**2)
+
+def p0p1_crossmass_edge__no_reuse(src_frame_xyz: np.ndarray,
+                                  tgt_edge_xyz: np.ndarray,
+                                  tol: float = 1e-13) -> np.ndarray:
+
+    sF = p0p1_arclength_param__no_reuse(src_frame_xyz)     # frame arclength nodes
+    sS = p0p1_arclength_param__no_reuse(tgt_edge_xyz)      # sub-edge arclength nodes
+    NL = max(0, len(sF) - 1)                               # #frame elements
+    if NL == 0 or len(sS) < 2:
+        return np.zeros((0, len(tgt_edge_xyz)))
+
+    brk = np.union1d(sF, sS)
+    s_min, s_max = brk[0], brk[-1]
+    D_edge = np.zeros((NL, len(tgt_edge_xyz)))
+
+    for i in range(len(brk) - 1):
+        A, B = brk[i], brk[i + 1]
+        if B - A <= tol:
+            continue
+        # midpoint strictly inside [A,B) to pick active elements
+        mid = 0.5 * (A + B)
+        mid = min(max(mid, s_min + tol), s_max - tol)
+
+        # active frame element k: sF[k] <= mid < sF[k+1]
+        k = np.searchsorted(sF, mid, side='right') - 1
+        k = max(0, min(k, NL - 1))
+
+        # active sub-edge element l: sS[l] <= mid < sS[l+1]
+        l = np.searchsorted(sS, mid, side='right') - 1
+        l = max(0, min(l, len(sS) - 2))  # ensure l+1 exists
+
+        # sub P1 bases as linear polynomials on [sS[l], sS[l+1]]
+        Nl_a0, Nl_a1 = p0p1_lin_coeffs_on_segment__no_reuse(sS[l],   sS[l + 1], which=0)
+        Nr_a0, Nr_a1 = p0p1_lin_coeffs_on_segment__no_reuse(sS[l],   sS[l + 1], which=1)
+
+        # clip overlap to avoid FP drift at endpoints
+        AA, BB = max(A, sS[l]), min(B, sS[l + 1] - tol)
+        if BB - AA <= tol:
+            continue
+
+        # χ_e = 1 on frame element k
+        D_edge[k, l]     += p0p1_int_lin__no_reuse(Nl_a0, Nl_a1, AA, BB)
+        D_edge[k, l + 1] += p0p1_int_lin__no_reuse(Nr_a0, Nr_a1, AA, BB)
+
+    return D_edge  # shape: NL × n_edge_nodes
+
+def p0p1_embed_edgecols_to_full__no_reuse(D_edge: np.ndarray,
+                                          edge_nodes: np.ndarray,
+                                          n_total_nodes: int) -> csr_matrix:
+    rows, cols, data = [], [], []
+    NL, n_edge_nodes = D_edge.shape
+    for e in range(NL):
+        nz = np.nonzero(D_edge[e, :])[0]
+        rows.extend([e] * len(nz))
+        cols.extend(edge_nodes[nz])
+        data.extend(D_edge[e, nz])
+    return csr_matrix((data, (rows, cols)), shape=(NL, n_total_nodes))
+
+def build_p0p1_interpolator_frame_to_sub_full__no_reuse(src_frame_xyz: np.ndarray,
+                                                        tgt_xyz: np.ndarray,
+                                                        tgt_conn: np.ndarray,
+                                                        edge_elem_idx: np.ndarray) -> csr_matrix:
+
+    # order the subdomain interface nodes from the provided boundary connectivity
+    edge_conn_subset = tgt_conn[edge_elem_idx,:]  # interface edges only
+    edge_nodes_ordered = p0p1_order_edge_nodes_chain__no_reuse(edge_conn_subset)
+    tgt_edge_xyz = tgt_xyz[edge_nodes_ordered]
+
+    # build edge-only cross-mass then embed to full NT
+    D_edge = p0p1_crossmass_edge__no_reuse(src_frame_xyz, tgt_edge_xyz)   # NL × n_edge_nodes
+    D_full = p0p1_embed_edgecols_to_full__no_reuse(D_edge, edge_nodes_ordered, tgt_xyz.shape[0])
+    return D_full  # NL × NT (CSR)
