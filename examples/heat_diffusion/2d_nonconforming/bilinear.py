@@ -196,21 +196,8 @@ mu.numberdofs()
 ########################################################################################################################
 
 frame_xyz = fens_i.xyz
-if elem_lagrange==False:
-
-    edge_conn2 = boundary_fes2.conn[interface_fe_idx2]
-    C2_edge, edge_nodes2_ordered = cross_mass_P1_frame_P1_sub(frame_xyz, fens2.xyz, edge_conn2)
-    C2 = -embed_cross_mass_to_full(C2_edge, edge_nodes2_ordered, fens2.count())
-
-    edge_conn1 = boundary_fes1.conn[interface_fe_idx1]
-    C1_edge, edge_nodes1_ordered = cross_mass_P1_frame_P1_sub(frame_xyz, fens1.xyz, edge_conn1)
-    C1 = embed_cross_mass_to_full(C1_edge, edge_nodes1_ordered, fens1.count())
-
-else:
-    C1 = build_p0p1_interpolator_frame_to_sub_full__no_reuse(frame_xyz, fens1.xyz, boundary_fes1.conn,
-                                                             interface_fe_idx1)
-    C2 = -build_p0p1_interpolator_frame_to_sub_full__no_reuse(frame_xyz, fens2.xyz, boundary_fes2.conn,
-                                                              interface_fe_idx2)
+C1 = build_interface_interpolator(fens_i.xyz, fens1.xyz, boundary_fes1.conn, interface_fe_idx1, elem_lagrange)
+C2 = -build_interface_interpolator(fens_i.xyz, fens2.xyz, boundary_fes2.conn, interface_fe_idx2, elem_lagrange)
 
 
 C1_p = C1[:, dbc_nodes1]

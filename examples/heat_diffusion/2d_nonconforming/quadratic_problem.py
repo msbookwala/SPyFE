@@ -31,15 +31,15 @@ from utilities import *
 import pyvista as pv
 from scipy.integrate import trapezoid
 
-N_elem1 = 2
-N_elem2 = 3
+N_elem1 = 20
+N_elem2 = 30
 N_elem_i = min(N_elem1, N_elem2)
 # N_elem_i = 20
 left_m = "q"
 right_m = "t"
 skew = 0.0
 top_bc = "D"
-elem_lagrange= True
+elem_lagrange= False
 
 # These are the constants in the problem, k is kappa
 boundaryf = lambda x, y: 1.0 + x ** 2 + 2 * y ** 2
@@ -196,22 +196,9 @@ mu.numberdofs()
 ########################################################################################################################
 
 frame_xyz = fens_i.xyz
-if elem_lagrange==False:
 
-    edge_conn2 = boundary_fes2.conn[interface_fe_idx2]
-    C2_edge, edge_nodes2_ordered = cross_mass_P1_frame_P1_sub(frame_xyz, fens2.xyz, edge_conn2)
-    C2 = -embed_cross_mass_to_full(C2_edge, edge_nodes2_ordered, fens2.count())
-
-    edge_conn1 = boundary_fes1.conn[interface_fe_idx1]
-    C1_edge, edge_nodes1_ordered = cross_mass_P1_frame_P1_sub(frame_xyz, fens1.xyz, edge_conn1)
-    C1 = embed_cross_mass_to_full(C1_edge, edge_nodes1_ordered, fens1.count())
-
-else:
-    C1 = build_p0p1_interpolator_frame_to_sub_full__no_reuse(frame_xyz, fens1.xyz, boundary_fes1.conn,
-                                                             interface_fe_idx1)
-    C2 = -build_p0p1_interpolator_frame_to_sub_full__no_reuse(frame_xyz, fens2.xyz, boundary_fes2.conn,
-                                                              interface_fe_idx2)
-
+C1 = build_interface_interpolator(fens_i.xyz, fens1.xyz, boundary_fes1.conn, interface_fe_idx1, elem_lagrange)
+C2 = -build_interface_interpolator(fens_i.xyz, fens2.xyz, boundary_fes2.conn, interface_fe_idx2, elem_lagrange)
 
 C1_p = C1[:, dbc_nodes1]
 C2_p = C2[:, dbc_nodes2]

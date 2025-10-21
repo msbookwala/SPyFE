@@ -2,6 +2,16 @@ import numpy as np
 
 from spyfe.fields.elemental_field import ElementalField
 from scipy.sparse import csr_matrix
+import os
+
+from vtkmodules.vtkCommonDataModel import (
+    vtkDataObject, vtkDataSet, vtkPolyData, vtkUnstructuredGrid,
+    vtkImageData, vtkRectilinearGrid, vtkStructuredGrid
+)
+from vtkmodules.vtkIOLegacy import vtkDataSetReader, vtkDataSetWriter
+from vtkmodules.vtkIOXML import vtkXMLGenericDataObjectReader
+from vtkmodules.vtkFiltersCore import vtkAppendFilter
+
 
 def is_node_in_element(node_xyz, element_xyzs, element_dim=1):
     """
@@ -88,28 +98,8 @@ def L2_err(femm, geom, temp, sol):
 
 
 def build_edge_map_simple(src_edge_xyz, tgt_xyz, tgt_conn, edge_elem_idx):
-    """
-    Build A such that b = A @ L, where:
-      - L are piecewise constant values on the source edge elements
-      - b are nodal loads on the target 2D mesh (P1)
-    Only nodes on the specified edge contribute; others are zero.
+    # PO frame ->P1 subdomaing edge . flux to load
 
-    Parameters
-    ----------
-    src_edge_xyz : (m+1,2) array
-        Coordinates of the source edge nodes (ordered along the edge).
-    tgt_xyz : (n,2) array
-        Coordinates of all target mesh nodes.
-    tgt_conn : (n_edge_elems,2) int array
-        Connectivity of all boundary elements (edges) in the 2D mesh.
-    edge_elem_idx : 1D array of int
-        Indices of the target boundary elements belonging to the interface edge.
-
-    Returns
-    -------
-    A : (n_tgt_nodes, m_src_elems) csr_matrix
-        Mapping matrix; b = A @ L
-    """
     # Source arclength coordinate
     s_src = np.zeros(len(src_edge_xyz))
     s_src[1:] = np.cumsum(np.linalg.norm(np.diff(src_edge_xyz, axis=0), axis=1))
@@ -141,20 +131,10 @@ def build_edge_map_simple(src_edge_xyz, tgt_xyz, tgt_conn, edge_elem_idx):
     A[edge_nodes, :] = A_edge
     return csr_matrix(A)
 
-
-import os
-
-from vtkmodules.vtkCommonDataModel import (
-    vtkDataObject, vtkDataSet, vtkPolyData, vtkUnstructuredGrid,
-    vtkImageData, vtkRectilinearGrid, vtkStructuredGrid
-)
-from vtkmodules.vtkIOLegacy import vtkDataSetReader, vtkDataSetWriter
-from vtkmodules.vtkIOXML import vtkXMLGenericDataObjectReader
-from vtkmodules.vtkFiltersCore import vtkAppendFilter
-
-
-# -------------------- I/O helpers --------------------
-def _read_any(path: str) -> vtkDataObject:
+########################################################################################################################
+# Merging VTK#
+########################################################################################################################
+def _read_any(path):
     if not os.path.exists(path):
         raise FileNotFoundError(path)
     ext = os.path.splitext(path)[1].lower()
@@ -180,7 +160,7 @@ def _read_any(path: str) -> vtkDataObject:
     raise RuntimeError(f"Unsupported or unreadable file: {path}")
 
 
-def _write_any(obj: vtkDataObject, filename: str):
+def _write_any(obj, filename):
     ext = os.path.splitext(filename)[1].lower()
 
     if ext == ".vtk":
@@ -225,11 +205,10 @@ def _write_any(obj: vtkDataObject, filename: str):
         raise RuntimeError(f"Failed to write {filename}")
 
 
-# -------------------- field utilities --------------------
-def _attrs(ds: vtkDataSet, assoc: str):
+def _attrs(ds, assoc):
     return ds.GetPointData() if assoc == "POINTS" else ds.GetCellData()
 
-def _names_and_ncomps(ds: vtkDataSet, assoc: str) -> dict:
+def _names_and_ncomps(ds, assoc):
     cont = _attrs(ds, assoc)
     if not cont:
         return {}
@@ -243,7 +222,7 @@ def _names_and_ncomps(ds: vtkDataSet, assoc: str) -> dict:
             out[nm] = arr.GetNumberOfComponents()
     return out
 
-def _keep_only(ds: vtkDataSet, assoc: str, names_to_keep: set[str]):
+def _keep_only(ds, assoc, names_to_keep):
     cont = _attrs(ds, assoc)
     if not cont:
         return
@@ -257,8 +236,7 @@ def _keep_only(ds: vtkDataSet, assoc: str, names_to_keep: set[str]):
         cont.RemoveArray(nm)
 
 
-# -------------------- merge core --------------------
-def _append_two_to_ugrid(a: vtkDataSet, b: vtkDataSet) -> vtkUnstructuredGrid:
+def _append_two_to_ugrid(a, b):
     app = vtkAppendFilter()
     app.AddInputData(a)
     app.AddInputData(b)
@@ -268,12 +246,7 @@ def _append_two_to_ugrid(a: vtkDataSet, b: vtkDataSet) -> vtkUnstructuredGrid:
     return out
 
 
-def merge_vtk_files_common_fields(
-    file_a: str,
-    file_b: str,
-    output_path: str | None = None,
-    include_field_data: bool = False,  # FIELD data not commonly needed for coloring
-):
+def merge_vtk_files_common_fields(file_a, file_b, output_path, include_field_data):
     A = _read_any(file_a)
     B = _read_any(file_b)
 
@@ -331,103 +304,10 @@ def merge_vtk_files_common_fields(
 
     return merged
 ########################################################################################################################
-
-def _arclength_nodes(xyz):
-    s = np.zeros(len(xyz))
-    if len(xyz) > 1:
-        d = np.linalg.norm(np.diff(xyz, axis=0), axis=1)
-        s[1:] = np.cumsum(d)
-    return s
-
-def _lin_coeffs_on_segment(sL, sR, which):
-    h = (sR - sL)
-    if which == 0:   # (sR - s)/h
-        return (sR / h, -1.0 / h)
-    else:            # (s - sL)/h
-        return (-sL / h, 1.0 / h)
-
-def _int_linlin(a0,a1,b0,b1, sA, sB):
-    A = a0*b0
-    B = a0*b1 + a1*b0
-    C = a1*b1
-    return A*(sB - sA) + 0.5*B*(sB**2 - sA**2) + (1.0/3.0)*C*(sB**3 - sA**3)
-
-def cross_mass_P1_frame_P1_sub(frame_xyz, sub_xyz, sub_edge_conn):
-    # Order subdomain interface nodes
-    edge_nodes = _order_edge_nodes(sub_edge_conn)
-    sub_edge_xyz = sub_xyz[edge_nodes]
-    sF = _arclength_nodes(frame_xyz)
-    sS = _arclength_nodes(sub_edge_xyz)
-
-    # Breakpoints of the union partition
-    brk = np.union1d(sF, sS)
-
-    C = np.zeros((len(frame_xyz), len(edge_nodes)))
-    # Pointers to current active elements
-    k = 0  # frame element index (between nodes k and k+1)
-    l = 0  # sub edge element index (between nodes l and l+1)
-
-    for i in range(len(brk) - 1):
-        a, b = brk[i], brk[i+1]
-        # advance k,l to the element containing [a,b]
-        while not (sF[k] <= a + 1e-14 and b <= sF[k+1] + 1e-14):
-            k += 1
-        while not (sS[l] <= a + 1e-14 and b <= sS[l+1] + 1e-14):
-            l += 1
-        # frame bases on [sF[k], sF[k+1]]
-        fL_a0, fL_a1 = _lin_coeffs_on_segment(sF[k],   sF[k+1], which=0)
-        fR_a0, fR_a1 = _lin_coeffs_on_segment(sF[k],   sF[k+1], which=1)
-        # sub bases on [sS[l], sS[l+1]]
-        sL_b0, sL_b1 = _lin_coeffs_on_segment(sS[l],   sS[l+1], which=0)
-        sR_b0, sR_b1 = _lin_coeffs_on_segment(sS[l],   sS[l+1], which=1)
-
-        C[k,   l]   += _int_linlin(fL_a0,fL_a1, sL_b0,sL_b1, a, b)
-        C[k,   l+1] += _int_linlin(fL_a0,fL_a1, sR_b0,sR_b1, a, b)
-        C[k+1, l]   += _int_linlin(fR_a0,fR_a1, sL_b0,sL_b1, a, b)
-        C[k+1, l+1] += _int_linlin(fR_a0,fR_a1, sR_b0,sR_b1, a, b)
-
-    return C, edge_nodes
-
-def embed_cross_mass_to_full(C_edge, edge_nodes, n_total_nodes):
-    rows, cols, data = [], [], []
-    for a in range(C_edge.shape[0]):
-        nz = np.nonzero(C_edge[a, :])[0]
-        rows.extend([a]*len(nz))
-        cols.extend(edge_nodes[nz])
-        data.extend(C_edge[a, nz])
-    return csr_matrix((data, (rows, cols)), shape=(C_edge.shape[0], n_total_nodes))
-
-import numpy as np
-from scipy.sparse import csr_matrix
-
+# interpolation matrices
+########################################################################################################################
 def _order_edge_nodes(edge_conn):
-    # Build adjacency
-    adj = {}
-    for a, b in edge_conn:
-        adj.setdefault(a, []).append(b)
-        adj.setdefault(b, []).append(a)
-    # Find an endpoint (degree 1), else start anywhere
-    ends = [n for n, nb in adj.items() if len(nb) == 1]
-    start = ends[0] if ends else edge_conn[0, 0]
-    order = [start]
-    prev = None
-    cur = start
-    while True:
-        nxts = [n for n in adj[cur] if n != prev]
-        if not nxts:
-            break
-        nxt = nxts[0]
-        order.append(nxt)
-        prev, cur = cur, nxt
-        if len(order) > len(adj):  # safety
-            break
-    return np.array(order, dtype=int)
-
-
-
-################
-
-def p0p1_order_edge_nodes_chain__no_reuse(edge_conn: np.ndarray) -> np.ndarray:
+    """Order a set of 2-node boundary edges into a single node chain."""
     adj = {}
     for a, b in edge_conn:
         adj.setdefault(a, []).append(b)
@@ -446,93 +326,100 @@ def p0p1_order_edge_nodes_chain__no_reuse(edge_conn: np.ndarray) -> np.ndarray:
             break
     return np.array(order, dtype=int)
 
-def p0p1_arclength_param__no_reuse(xyz: np.ndarray) -> np.ndarray:
+def _s_arclength(xyz):
     s = np.zeros(len(xyz))
     if len(xyz) > 1:
-        d = np.linalg.norm(np.diff(xyz, axis=0), axis=1)
-        s[1:] = np.cumsum(d)
+        seg = np.linalg.norm(np.diff(xyz, axis=0), axis=1)
+        s[1:] = np.cumsum(seg)
     return s
 
-def p0p1_lin_coeffs_on_segment__no_reuse(sL: float, sR: float, which: int) -> tuple[float, float]:
+def _lin_coeffs(sL, sR, which):
     h = (sR - sL)
-    if h <= 0:
+    if h <= 0:  # degeneracy guard
         return (0.0, 0.0)
-    if which == 0:   # left-node basis (sR - s)/h
-        return (sR / h, -1.0 / h)
-    else:            # right-node basis (s - sL)/h
-        return (-sL / h, 1.0 / h)
+    return (sR / h, -1.0 / h) if which == 0 else (-sL / h, 1.0 / h)
 
-def p0p1_int_lin__no_reuse(a0: float, a1: float, A: float, B: float) -> float:
-    return a0 * (B - A) + 0.5 * a1 * (B**2 - A**2)
+def _int_lin(a0, a1, A, B):
+    return a0*(B - A) + 0.5*a1*(B**2 - A**2)
 
-def p0p1_crossmass_edge__no_reuse(src_frame_xyz: np.ndarray,
-                                  tgt_edge_xyz: np.ndarray,
-                                  tol: float = 1e-13) -> np.ndarray:
+def _int_linlin(a0, a1, b0, b1, A, B):
+    A0 = a0*b0
+    B0 = a0*b1 + a1*b0
+    C0 = a1*b1
+    return A0*(B - A) + 0.5*B0*(B**2 - A**2) + (1.0/3.0)*C0*(B**3 - A**3)
 
-    sF = p0p1_arclength_param__no_reuse(src_frame_xyz)     # frame arclength nodes
-    sS = p0p1_arclength_param__no_reuse(tgt_edge_xyz)      # sub-edge arclength nodes
-    NL = max(0, len(sF) - 1)                               # #frame elements
-    if NL == 0 or len(sS) < 2:
-        return np.zeros((0, len(tgt_edge_xyz)))
+def build_interface_interpolator(frame_xyz, tgt_xyz, tgt_conn, edge_elem_idx, elem_lagrange = True, tol = 1e-13) :
 
+    if elem_lagrange:
+        lm_degree = "p0"
+    else:
+        lm_degree = "p1"
+    # Order target interface nodes
+    edge_conn = tgt_conn[edge_elem_idx]
+    edge_nodes = _order_edge_nodes(edge_conn)
+    edge_xyz   = tgt_xyz[edge_nodes]
+
+    sF = _s_arclength(frame_xyz)
+    sS = _s_arclength(edge_xyz)
+    nF_elems = max(0, len(sF) - 1)
+    nS_elems = max(0, len(sS) - 1)
+    if nF_elems == 0 or nS_elems == 0:
+        NL = (len(frame_xyz) - 1) if lm_degree.lower() == "p0" else len(frame_xyz)
+        return csr_matrix((NL, tgt_xyz.shape[0]))
+
+    # Union partition
     brk = np.union1d(sF, sS)
     s_min, s_max = brk[0], brk[-1]
-    D_edge = np.zeros((NL, len(tgt_edge_xyz)))
 
+    if lm_degree.lower() == "p0":
+        NL = nF_elems
+        M_edge = np.zeros((NL, len(edge_nodes)))
+    else:
+        NL = len(sF)
+        M_edge = np.zeros((NL, len(edge_nodes)))
+
+    # Sweep union sub-intervals
     for i in range(len(brk) - 1):
-        A, B = brk[i], brk[i + 1]
+        A, B = brk[i], brk[i+1]
         if B - A <= tol:
             continue
-        # midpoint strictly inside [A,B) to pick active elements
-        mid = 0.5 * (A + B)
+        # pick midpoint strictly inside [A,B)
+        mid = 0.5*(A + B)
         mid = min(max(mid, s_min + tol), s_max - tol)
 
-        # active frame element k: sF[k] <= mid < sF[k+1]
+        # active elements containing mid
         k = np.searchsorted(sF, mid, side='right') - 1
-        k = max(0, min(k, NL - 1))
-
-        # active sub-edge element l: sS[l] <= mid < sS[l+1]
         l = np.searchsorted(sS, mid, side='right') - 1
-        l = max(0, min(l, len(sS) - 2))  # ensure l+1 exists
+        k = max(0, min(k, nF_elems - 1))
+        l = max(0, min(l, nS_elems - 1))   # ensures l+1 exists
 
-        # sub P1 bases as linear polynomials on [sS[l], sS[l+1]]
-        Nl_a0, Nl_a1 = p0p1_lin_coeffs_on_segment__no_reuse(sS[l],   sS[l + 1], which=0)
-        Nr_a0, Nr_a1 = p0p1_lin_coeffs_on_segment__no_reuse(sS[l],   sS[l + 1], which=1)
+        # sub-edge P1 bases as linear polynomials on [sS[l], sS[l+1]]
+        Nl_a0, Nl_a1 = _lin_coeffs(sS[l],   sS[l+1], which=0)
+        Nr_a0, Nr_a1 = _lin_coeffs(sS[l],   sS[l+1], which=1)
 
-        # clip overlap to avoid FP drift at endpoints
-        AA, BB = max(A, sS[l]), min(B, sS[l + 1] - tol)
+        AA, BB = max(A, sS[l]), min(B, sS[l+1] - tol)
         if BB - AA <= tol:
             continue
 
-        # χ_e = 1 on frame element k
-        D_edge[k, l]     += p0p1_int_lin__no_reuse(Nl_a0, Nl_a1, AA, BB)
-        D_edge[k, l + 1] += p0p1_int_lin__no_reuse(Nr_a0, Nr_a1, AA, BB)
+        if lm_degree.lower() == "p0":
+            # χ_e = 1 on frame element k -> integrate only sub P1
+            M_edge[k, l    ] += _int_lin(Nl_a0, Nl_a1, AA, BB)
+            M_edge[k, l + 1] += _int_lin(Nr_a0, Nr_a1, AA, BB)
+        else:
+            # frame P1 (rows k and k+1) × sub P1 (cols l and l+1)
+            phiL_a0, phiL_a1 = _lin_coeffs(sF[k],   sF[k+1], which=0)
+            phiR_a0, phiR_a1 = _lin_coeffs(sF[k],   sF[k+1], which=1)
 
-    return D_edge  # shape: NL × n_edge_nodes
+            M_edge[k,   l    ] += _int_linlin(phiL_a0, phiL_a1, Nl_a0, Nr_a1*0 + Nl_a1, AA, BB)
+            M_edge[k,   l + 1] += _int_linlin(phiL_a0, phiL_a1, Nr_a0, Nr_a1,             AA, BB)
+            M_edge[k+1, l    ] += _int_linlin(phiR_a0, phiR_a1, Nl_a0, Nl_a1,             AA, BB)
+            M_edge[k+1, l + 1] += _int_linlin(phiR_a0, phiR_a1, Nr_a0, Nr_a1,             AA, BB)
 
-def p0p1_embed_edgecols_to_full__no_reuse(D_edge: np.ndarray,
-                                          edge_nodes: np.ndarray,
-                                          n_total_nodes: int) -> csr_matrix:
+    # Embed edge-only columns into full NT
     rows, cols, data = [], [], []
-    NL, n_edge_nodes = D_edge.shape
-    for e in range(NL):
-        nz = np.nonzero(D_edge[e, :])[0]
-        rows.extend([e] * len(nz))
+    for r in range(M_edge.shape[0]):
+        nz = np.nonzero(M_edge[r, :])[0]
+        rows.extend([r]*len(nz))
         cols.extend(edge_nodes[nz])
-        data.extend(D_edge[e, nz])
-    return csr_matrix((data, (rows, cols)), shape=(NL, n_total_nodes))
-
-def build_p0p1_interpolator_frame_to_sub_full__no_reuse(src_frame_xyz: np.ndarray,
-                                                        tgt_xyz: np.ndarray,
-                                                        tgt_conn: np.ndarray,
-                                                        edge_elem_idx: np.ndarray) -> csr_matrix:
-
-    # order the subdomain interface nodes from the provided boundary connectivity
-    edge_conn_subset = tgt_conn[edge_elem_idx,:]  # interface edges only
-    edge_nodes_ordered = p0p1_order_edge_nodes_chain__no_reuse(edge_conn_subset)
-    tgt_edge_xyz = tgt_xyz[edge_nodes_ordered]
-
-    # build edge-only cross-mass then embed to full NT
-    D_edge = p0p1_crossmass_edge__no_reuse(src_frame_xyz, tgt_edge_xyz)   # NL × n_edge_nodes
-    D_full = p0p1_embed_edgecols_to_full__no_reuse(D_edge, edge_nodes_ordered, tgt_xyz.shape[0])
-    return D_full  # NL × NT (CSR)
+        data.extend(M_edge[r, nz])
+    return csr_matrix((data, (rows, cols)), shape=(M_edge.shape[0], tgt_xyz.shape[0]))
