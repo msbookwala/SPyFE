@@ -269,7 +269,7 @@ if elem_lagrange:
 else:
     plt.plot(fens_i.xyz[:,1], mu.values.flatten(),   label="lambda f")
 plt.legend()
-plt.title("Lagrange multipliers and their projections\n NBC on top and bottom")
+plt.title(f"Lagrange multipliers and their projections\n {top_bc}BC on top and bottom")
 plt.xlabel("y along the interface")
 plt.ylabel("Lagrange multiplier")
 # # plt.ylim(-50,50)
