@@ -31,15 +31,15 @@ from utilities import *
 import pyvista as pv
 from scipy.integrate import trapezoid
 
-N_elem1 = 40
-N_elem2 = 40
+N_elem1 = 20
+N_elem2 = 30
 N_elem_i = min(N_elem1, N_elem2)
-# N_elem_i = 5
+N_elem_i = 15
 left_m = "q"
 right_m = "t"
 skew = 0.0
 top_bc = "N"
-elem_lagrange = False
+elem_lagrange = True
 
 # These are the constants in the problem, k is kappa
 boundaryf = lambda x, y: 1.0 + x ** 2 + 2 * y ** 2

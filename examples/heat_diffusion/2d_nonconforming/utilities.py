@@ -125,53 +125,17 @@ def lagrange_interpolation_matrix(nodes1, nodes2, atol=1e-12):
 def pwc_interpolation_matrix(nodes1, nodes2, atol=1e-12):
     nodes1 = np.asarray(nodes1, dtype=float)
     nodes2 = np.asarray(nodes2, dtype=float)
-    N1 = nodes1.shape[0]
-    N2 = nodes2.shape[0]
-    if N1 < 2 or N2 < 2:
-        raise ValueError("Need at least two nodes in each set (one element).")
 
-    # Find line direction from nodes1
-    p0 = nodes1[0]
-    u = None
-    for k in range(1, N1):
-        v = nodes1[k] - p0
-        nv = np.linalg.norm(v)
-        if nv > atol:
-            u = v / nv
-            break
-    if u is None:
-        raise ValueError("Cannot determine line direction from nodes1.")
+    midpts = (nodes2[:-1] + nodes2[1:]) / 2
+    mat = np.zeros((nodes2.shape[0]-1, nodes1.shape[0]-1))
 
-    # Project both node sets to 1D coordinates along u
-    t1 = (nodes1 - p0) @ u
-    t2 = (nodes2 - p0) @ u
-
-    S_left,  S_right  = t1[:-1], t1[1:]
-    T_left,  T_right  = t2[:-1], t2[1:]
-
-    Nel_src = len(S_left)
-    Nel_tgt = len(T_left)
-    M = np.zeros((Nel_tgt, Nel_src), dtype=float)
-
-    S_a = np.minimum(S_left, S_right)
-    S_b = np.maximum(S_left, S_right)
-    T_a = np.minimum(T_left, T_right)
-    T_b = np.maximum(T_left, T_right)
-
-    # Assemble by interval overlaps
-    for e_t in range(Nel_tgt):
-        aT, bT = T_a[e_t], T_b[e_t]
-        lenT = bT - aT
-        if lenT <= atol:
-            continue  # degenerate target element -> leaves zero row
-        for e_s in range(Nel_src):
-            aS, bS = S_a[e_s], S_b[e_s]
-            # overlap length
-            ov = max(0.0, min(bT, bS) - max(aT, aS))
-            if ov > 0.0:
-                M[e_t, e_s] = ov / lenT
-
-    return M
+    for i in range(nodes2.shape[0]-1):
+        for j in range(nodes1.shape[0]-1):
+            a = nodes1[j]
+            b = nodes1[j+1]
+            if is_node_in_element(midpts[i], [a, b]):
+                mat[i, j] = 1.0
+    return mat
 
 def L2_err(femm, geom, temp, sol):
     err = ElementalField(fes = femm.fes)
@@ -226,6 +190,7 @@ def build_edge_map_simple(src_edge_xyz, tgt_xyz, tgt_conn, edge_elem_idx):
     A = np.zeros((tgt_xyz.shape[0], m))
     A[edge_nodes, :] = A_edge
     return csr_matrix(A)
+
 
 ########################################################################################################################
 # Merging VTK#
