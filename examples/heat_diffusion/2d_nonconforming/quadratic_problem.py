@@ -31,14 +31,14 @@ from utilities import *
 import pyvista as pv
 from scipy.integrate import trapezoid
 
-N_elem1 = 20
-N_elem2 = 30
+N_elem1 = 30
+N_elem2 = 29
 N_elem_i = min(N_elem1, N_elem2)
-N_elem_i = 15
+# N_elem_i = 15
 left_m = "q"
 right_m = "t"
 skew = 0.0
-top_bc = "N"
+top_bc = "D"
 elem_lagrange = True
 
 # These are the constants in the problem, k is kappa
@@ -216,8 +216,8 @@ A = bmat([
 
 print(f"Dim - {A.shape}\n Rank - {np.linalg.matrix_rank(A.toarray())}")
 F = np.concatenate([F1, F2, dbc_lam_f])
-# U = spsolve(A, F)
-U = cg(A, F, rtol=1e-10)[0]
+U = spsolve(A, F)
+# U = cg(A, F, rtol=1e-10)[0]
 ########################################################################################################################
 # Post Processing
 ########################################################################################################################
