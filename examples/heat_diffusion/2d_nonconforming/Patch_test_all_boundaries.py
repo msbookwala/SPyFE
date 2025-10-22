@@ -31,23 +31,24 @@ from utilities import *
 import pyvista as pv
 from scipy.integrate import trapezoid
 
-N_elem1 = 40
-N_elem2 = 40
+N_elem1 = 20
+N_elem2 = 30
 N_elem_i = min(N_elem1, N_elem2)
-# N_elem_i = 5
+N_elem_i = 5
 left_m = "q"
 right_m = "t"
 skew = 0.0
 top_bc = "N"
-elem_lagrange = False
+elem_lagrange= True
 
 # These are the constants in the problem, k is kappa
-boundaryf = lambda x, y: 1.0 + x ** 2 + 2 * y ** 2
-Q = -6  # internal heat generation rate
+boundaryf = lambda x, y: 1-x
+exact =  lambda x: 1.0 - x[0]
+Q = 0  # internal heat generation rate
 k = 1.0  # thermal conductivity
 m = MatHeatDiff(thermal_conductivity=array([[k, 0.0], [0.0, k]]), rho=1.0)
 Dz = 1.0  # thickness of the slice
-q = lambda x, y: 4*y
+q = lambda x, y: 0
 
 box = np.array([0.5,0.5,0.0,1.0])
 box_ = np.array([0.5,0.5,0.0,1.0])
@@ -236,7 +237,7 @@ script_filename = os.path.join(script_filename, subdir)
 if not os.path.exists(script_filename):
     os.mkdir(script_filename)
 
-exact =  lambda x: 1.0 + np.pow(x[0],2 )+ 2 * np.pow(x[1], 2)
+
 L2_err1 = L2_err(femm1, geom1, T1, exact)
 L2_err2 = L2_err(femm2, geom2, T2, exact)
 vtkexport(f"{script_filename}/left", fes1, geom1, {"Temperature":T1, "Error":L2_err1})
@@ -344,6 +345,6 @@ if use_pv:
     plotter.show(screenshot=out_png)
     plotter.close()
 
-print(f"Max Lagrange Error = {np.max(np.abs(mu.values +1))}")
+
 
 

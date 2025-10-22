@@ -1,5 +1,6 @@
 import numpy as np
 
+from spyfe.femms.femm_heatdiff import FEMMHeatDiff
 from spyfe.fields.elemental_field import ElementalField
 from scipy.sparse import csr_matrix
 import os
@@ -11,6 +12,11 @@ from vtkmodules.vtkCommonDataModel import (
 from vtkmodules.vtkIOLegacy import vtkDataSetReader, vtkDataSetWriter
 from vtkmodules.vtkIOXML import vtkXMLGenericDataObjectReader
 from vtkmodules.vtkFiltersCore import vtkAppendFilter
+
+from spyfe.fields.nodal_field import NodalField
+from spyfe.integ_rules import GaussRule
+from spyfe.materials.mat_heatdiff import MatHeatDiff
+from spyfe.meshing.generators.intervals import l2_blockx_2D
 
 
 def is_node_in_element(node_xyz, element_xyzs, element_dim=1):
@@ -28,7 +34,7 @@ def is_node_in_element(node_xyz, element_xyzs, element_dim=1):
         an = node - a
         cross = np.cross(ab, an)
         dot = np.dot(ab, an)
-        if np.abs(cross) < 1e-8 and 0 <= dot <= np.dot(ab, ab):
+        if np.abs(cross) < 1e-8 and 0 <= dot <= np.dot(ab, ab)+1e-8:
             return True
         return False
     # elif element_dim == 2:
@@ -74,6 +80,99 @@ def assemble_gamma(subdomain_fens, subdomain_bfes, subdomain_interface_fe_idx, i
     gamma[gamma == 2.0] = 1.0
     return gamma
 
+def lagrange_interpolation_matrix(nodes1, nodes2, atol=1e-12):
+    nodes1 = np.asarray(nodes1, dtype=float)
+    nodes2 = np.asarray(nodes2, dtype=float)
+    N1, N2 = nodes1.shape[0], nodes2.shape[0]
+
+    # Map from source (N1) to target (N2): y_tgt = M @ y_src
+    M = np.zeros((N2, N1), dtype=float)
+
+    if N1 == 0:
+        return M
+    if N1 == 1:
+        M[:, 0] = 1.0
+        return M
+
+    for j in range(N2):
+        p = nodes2[j, :]
+
+        # Exact/near match with a source node -> Kronecker row
+        d = np.linalg.norm(nodes1 - p, axis=1)
+        k_min = np.argmin(d)
+        if d[k_min] <= atol:
+            M[j, k_min] = 1.0
+            continue
+
+        placed = False
+        for i in range(N1 - 1):
+            a = nodes1[i, :]
+            b = nodes1[i + 1, :]
+            if is_node_in_element(p, [a, b]):
+                xi = compute_xi(p, [a, b])  # should be in [-1, 1]
+                # Linear shape functions on the segment
+                N_left  = 0.5 * (1.0 - xi)  # weight at node i
+                N_right = 0.5 * (1.0 + xi)  # weight at node i+1
+                M[j, i]     += N_left
+                M[j, i + 1] += N_right
+                placed = True
+                break
+    M[np.isclose(M, 2.0)] = 1.0
+
+
+    return M
+
+def pwc_interpolation_matrix(nodes1, nodes2, atol=1e-12):
+    nodes1 = np.asarray(nodes1, dtype=float)
+    nodes2 = np.asarray(nodes2, dtype=float)
+    N1 = nodes1.shape[0]
+    N2 = nodes2.shape[0]
+    if N1 < 2 or N2 < 2:
+        raise ValueError("Need at least two nodes in each set (one element).")
+
+    # Find line direction from nodes1
+    p0 = nodes1[0]
+    u = None
+    for k in range(1, N1):
+        v = nodes1[k] - p0
+        nv = np.linalg.norm(v)
+        if nv > atol:
+            u = v / nv
+            break
+    if u is None:
+        raise ValueError("Cannot determine line direction from nodes1.")
+
+    # Project both node sets to 1D coordinates along u
+    t1 = (nodes1 - p0) @ u
+    t2 = (nodes2 - p0) @ u
+
+    S_left,  S_right  = t1[:-1], t1[1:]
+    T_left,  T_right  = t2[:-1], t2[1:]
+
+    Nel_src = len(S_left)
+    Nel_tgt = len(T_left)
+    M = np.zeros((Nel_tgt, Nel_src), dtype=float)
+
+    S_a = np.minimum(S_left, S_right)
+    S_b = np.maximum(S_left, S_right)
+    T_a = np.minimum(T_left, T_right)
+    T_b = np.maximum(T_left, T_right)
+
+    # Assemble by interval overlaps
+    for e_t in range(Nel_tgt):
+        aT, bT = T_a[e_t], T_b[e_t]
+        lenT = bT - aT
+        if lenT <= atol:
+            continue  # degenerate target element -> leaves zero row
+        for e_s in range(Nel_src):
+            aS, bS = S_a[e_s], S_b[e_s]
+            # overlap length
+            ov = max(0.0, min(bT, bS) - max(aT, aS))
+            if ov > 0.0:
+                M[e_t, e_s] = ov / lenT
+
+    return M
+
 def L2_err(femm, geom, temp, sol):
     err = ElementalField(fes = femm.fes)
 
@@ -93,9 +192,6 @@ def L2_err(femm, geom, temp, sol):
             err.values[i] += (jac * w[j]) * (u-uh)**2
         err.values[i] = np.sqrt(err.values[i])
     return err
-
-
-
 
 def build_edge_map_simple(src_edge_xyz, tgt_xyz, tgt_conn, edge_elem_idx):
     # PO frame ->P1 subdomaing edge . flux to load
@@ -246,7 +342,7 @@ def _append_two_to_ugrid(a, b):
     return out
 
 
-def merge_vtk_files_common_fields(file_a, file_b, output_path, include_field_data):
+def merge_vtk_files_common_fields(file_a, file_b, output_path, include_field_data=False):
     A = _read_any(file_a)
     B = _read_any(file_b)
 
@@ -326,28 +422,6 @@ def _order_edge_nodes(edge_conn):
             break
     return np.array(order, dtype=int)
 
-def _s_arclength(xyz):
-    s = np.zeros(len(xyz))
-    if len(xyz) > 1:
-        seg = np.linalg.norm(np.diff(xyz, axis=0), axis=1)
-        s[1:] = np.cumsum(seg)
-    return s
-
-def _lin_coeffs(sL, sR, which):
-    h = (sR - sL)
-    if h <= 0:  # degeneracy guard
-        return (0.0, 0.0)
-    return (sR / h, -1.0 / h) if which == 0 else (-sL / h, 1.0 / h)
-
-def _int_lin(a0, a1, A, B):
-    return a0*(B - A) + 0.5*a1*(B**2 - A**2)
-
-def _int_linlin(a0, a1, b0, b1, A, B):
-    A0 = a0*b0
-    B0 = a0*b1 + a1*b0
-    C0 = a1*b1
-    return A0*(B - A) + 0.5*B0*(B**2 - A**2) + (1.0/3.0)*C0*(B**3 - A**3)
-
 def build_interface_interpolator(frame_xyz, tgt_xyz, tgt_conn, edge_elem_idx, elem_lagrange = True, tol = 1e-13) :
 
     if elem_lagrange:
@@ -359,61 +433,34 @@ def build_interface_interpolator(frame_xyz, tgt_xyz, tgt_conn, edge_elem_idx, el
     edge_nodes = _order_edge_nodes(edge_conn)
     edge_xyz   = tgt_xyz[edge_nodes]
 
-    sF = _s_arclength(frame_xyz)
-    sS = _s_arclength(edge_xyz)
-    nF_elems = max(0, len(sF) - 1)
-    nS_elems = max(0, len(sS) - 1)
-    if nF_elems == 0 or nS_elems == 0:
-        NL = (len(frame_xyz) - 1) if lm_degree.lower() == "p0" else len(frame_xyz)
-        return csr_matrix((NL, tgt_xyz.shape[0]))
 
-    # Union partition
-    brk = np.union1d(sF, sS)
-    s_min, s_max = brk[0], brk[-1]
+    xys = np.unique(np.round(np.vstack([frame_xyz, edge_xyz]), 10), axis=0)
+    ys_i = xys[:,1]
+    xs_i = xys[:,0]
+    fens_i, fes_i = l2_blockx_2D(xs_i, ys_i)
+
+
+
+    geom_i = NodalField(fens=fens_i)
+    if lm_degree.lower() == "p0":
+        mu = ElementalField(nelems=fes_i.count(), dim=1)
+        mu.numberdofs()
+    else:
+        mu =  NodalField(nfens=fens_i.count(), dim=1)
+        mu.numberdofs()
+    m = MatHeatDiff(thermal_conductivity=np.array([[1, 0.0], [0.0, 1]]), rho=1.0)
+    femm_i = FEMMHeatDiff(fes=fes_i, material=m, integration_rule=GaussRule(dim=1, order=2))
 
     if lm_degree.lower() == "p0":
-        NL = nF_elems
-        M_edge = np.zeros((NL, len(edge_nodes)))
+        A_ = lagrange_interpolation_matrix(edge_xyz, xys)
+        B_ = pwc_interpolation_matrix(frame_xyz, xys)
+        M = femm_i.lam_mat(geom_i, mu)
+        M_edge = B_.T@M@A_
     else:
-        NL = len(sF)
-        M_edge = np.zeros((NL, len(edge_nodes)))
-
-    # Sweep union sub-intervals
-    for i in range(len(brk) - 1):
-        A, B = brk[i], brk[i+1]
-        if B - A <= tol:
-            continue
-        # pick midpoint strictly inside [A,B)
-        mid = 0.5*(A + B)
-        mid = min(max(mid, s_min + tol), s_max - tol)
-
-        # active elements containing mid
-        k = np.searchsorted(sF, mid, side='right') - 1
-        l = np.searchsorted(sS, mid, side='right') - 1
-        k = max(0, min(k, nF_elems - 1))
-        l = max(0, min(l, nS_elems - 1))   # ensures l+1 exists
-
-        # sub-edge P1 bases as linear polynomials on [sS[l], sS[l+1]]
-        Nl_a0, Nl_a1 = _lin_coeffs(sS[l],   sS[l+1], which=0)
-        Nr_a0, Nr_a1 = _lin_coeffs(sS[l],   sS[l+1], which=1)
-
-        AA, BB = max(A, sS[l]), min(B, sS[l+1] - tol)
-        if BB - AA <= tol:
-            continue
-
-        if lm_degree.lower() == "p0":
-            # χ_e = 1 on frame element k -> integrate only sub P1
-            M_edge[k, l    ] += _int_lin(Nl_a0, Nl_a1, AA, BB)
-            M_edge[k, l + 1] += _int_lin(Nr_a0, Nr_a1, AA, BB)
-        else:
-            # frame P1 (rows k and k+1) × sub P1 (cols l and l+1)
-            phiL_a0, phiL_a1 = _lin_coeffs(sF[k],   sF[k+1], which=0)
-            phiR_a0, phiR_a1 = _lin_coeffs(sF[k],   sF[k+1], which=1)
-
-            M_edge[k,   l    ] += _int_linlin(phiL_a0, phiL_a1, Nl_a0, Nr_a1*0 + Nl_a1, AA, BB)
-            M_edge[k,   l + 1] += _int_linlin(phiL_a0, phiL_a1, Nr_a0, Nr_a1,             AA, BB)
-            M_edge[k+1, l    ] += _int_linlin(phiR_a0, phiR_a1, Nl_a0, Nl_a1,             AA, BB)
-            M_edge[k+1, l + 1] += _int_linlin(phiR_a0, phiR_a1, Nr_a0, Nr_a1,             AA, BB)
+        A_ = lagrange_interpolation_matrix(edge_xyz, xys)
+        B_ = lagrange_interpolation_matrix(frame_xyz, xys)
+        M = femm_i.mass(geom_i, mu)
+        M_edge = B_.T @ M @ A_
 
     # Embed edge-only columns into full NT
     rows, cols, data = [], [], []
