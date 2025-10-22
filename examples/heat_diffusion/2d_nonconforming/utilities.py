@@ -469,4 +469,4 @@ def build_interface_interpolator(frame_xyz, tgt_xyz, tgt_conn, edge_elem_idx, el
         rows.extend([r]*len(nz))
         cols.extend(edge_nodes[nz])
         data.extend(M_edge[r, nz])
-    return csr_matrix((data, (rows, cols)), shape=(M_edge.shape[0], tgt_xyz.shape[0]))
+    return csr_matrix((data, (rows,  cols)), shape=(M_edge.shape[0], tgt_xyz.shape[0]))
