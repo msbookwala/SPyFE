@@ -34,8 +34,8 @@ from spyfe.meshing.generators.triangles import t3_ablock
 
 
 
-xs1 = np.linspace(0.0, 1.0, 2)
-ys1 = np.linspace(0.0, 2.0, 3)
+xs1 = np.linspace(0.0, 1.0, 20)
+ys1 = np.linspace(0.0, 2.0, 30)
 fens1, fes1 = q4_blockx(xs1, ys1)
 
 # fens1, fes1 = t3_ablock(1, 2, 9, 24)
@@ -55,8 +55,8 @@ F1 += femm_left.distrib_loads(geom1, T1, fi_1, 3)
 
 
 
-xs2 = np.linspace(1.0, 2.0, 2)
-ys2 = np.linspace(0.0, 2.0, 4)
+xs2 = np.linspace(1.0, 2.0, 20)
+ys2 = np.linspace(0.0, 2.0, 40)
 fens2, fes2 = q4_blockx(xs2, ys2)
 
 # fens2, fes2 = t3_ablock(1, 2, 11, 20)
@@ -79,8 +79,8 @@ fi_2 = ForceIntensity(magn=lambda x, J: 1.0 if np.isclose(x[0], 2.0) else 0.0)
 F2 += femm_right.distrib_loads(geom2, T2, fi_2, 3)
 
 # N=21
-# ys_i = np.unique(np.hstack([fens2.xyz[:, 1],fens1.xyz[:, 1]]))
-ys_i = np.linspace(0.0, 2.0, 3)  # x-coordinates
+ys_i = np.unique(np.hstack([fens2.xyz[:, 1],fens1.xyz[:, 1]]))
+# ys_i = np.linspace(0.0, 2.0, 3)  # x-coordinates
 xs_i = np.full_like(ys_i, 1.0)     # y-coordinates (constant)
 fens_i, fes_i = l2_blockx_2D(xs_i, ys_i)
 

@@ -26,7 +26,7 @@ k = 1.0  # thermal conductivity
 m = MatHeatDiff(thermal_conductivity=array([[k, 0.0], [0.0, k]]))
 Dz = 1.0  # thickness of the slice
 start = time.time()
-N = 30
+N = 10
 xs = numpy.linspace(0.0, 1.0, N+1)
 ys = numpy.linspace(0.0, 1.0, N+1)
 fens, fes = q4_blockx(xs, ys)
@@ -60,5 +60,9 @@ print('Solution',time.time() - start)
 print('Done',time.time() - start0)
 
 # print(temp.values.T)
+import numpy as np
+from utilities import *
+exact =  lambda x: 1.0 + np.pow(x[0],2 )+ 2 * np.pow(x[1], 2)
+L2err = L2_err(femm, geom, temp, exact)
 
-vtkexport("Poisson_fe_Q4_results", fes, geom, {'temperature': temp})
+vtkexport("Poisson_fe_Q4_results", fes, geom, {'temperature': temp, "err":L2err})

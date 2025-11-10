@@ -31,24 +31,24 @@ from utilities import *
 import pyvista as pv
 from scipy.integrate import trapezoid
 
-N_elem1 = 20
-N_elem2 = 30
+N_elem1 = 10
+N_elem2 = 10
+# N_elem3 = 10
 N_elem_i = min(N_elem1, N_elem2)
-N_elem_i = 5
+# N_elem_i = 15
 left_m = "q"
-right_m = "t"
+right_m = "q"
 skew = 0.0
 top_bc = "N"
-elem_lagrange= False
+elem_lagrange = True
 
 # These are the constants in the problem, k is kappa
-boundaryf = lambda x, y: 1-x
-exact =  lambda x: 1.0 - x[0]
-Q = 0  # internal heat generation rate
+boundaryf = lambda x, y: 1.0 + x ** 2 + 2 * y ** 2
+Q = -6  # internal heat generation rate
 k = 1.0  # thermal conductivity
 m = MatHeatDiff(thermal_conductivity=array([[k, 0.0], [0.0, k]]), rho=1.0)
 Dz = 1.0  # thickness of the slice
-q = lambda x, y: 0
+q = lambda x, y: 4*y
 
 box = np.array([0.5,0.5,0.0,1.0])
 box_ = np.array([0.5,0.5,0.0,1.0])
@@ -95,9 +95,9 @@ for index  in dbc_nodes1:
 T1.apply_ebc()
 
 if left_m == "q":
-    femm1 = FEMMHeatDiff(fes = fes1, material=m, integration_rule=GaussRule(dim=2, order=2))
+    femm1 = FEMMHeatDiff(fes = fes1, material=m, integration_rule=GaussRule(dim=2, order=3))
 else:
-    femm1 = FEMMHeatDiff(fes = fes1, material=m, integration_rule=TriRule(npts=1))
+    femm1 = FEMMHeatDiff(fes = fes1, material=m, integration_rule=TriRule(npts=3))
 
 T1.numberdofs()
 fi1= ForceIntensity(magn=lambda x, J: Q)
@@ -108,7 +108,7 @@ K1 = femm1.conductivity(geom1, T1)
 fi_bottom = ForceIntensity(magn=lambda x, J: q(x[0], x[1]) if np.isclose(x[1], 0.0) else 0.0)
 fi_top = ForceIntensity(magn=lambda x, J: q(x[0], x[1]) if np.isclose(x[1], 1.0) else 0.0)
 if top_bc=="N":
-    femm_nbc1 = FEMMHeatDiff(fes = boundary_fes1, material=m, integration_rule=GaussRule(dim=1, order=2))
+    femm_nbc1 = FEMMHeatDiff(fes = boundary_fes1, material=m, integration_rule=GaussRule(dim=1, order=3))
     F1 += femm_nbc1.distrib_loads(geom1, T1, fi_bottom, 3)
     F1 += femm_nbc1.distrib_loads(geom1, T1, fi_top, 3)
 
@@ -148,9 +148,9 @@ for index  in dbc_nodes2:
 T2.apply_ebc()
 
 if right_m == "q":
-    femm2 = FEMMHeatDiff(fes = fes2, material=m, integration_rule=GaussRule(dim=2, order=2))
+    femm2 = FEMMHeatDiff(fes = fes2, material=m, integration_rule=GaussRule(dim=2, order=3))
 else:
-    femm2 = FEMMHeatDiff(fes = fes2, material=m, integration_rule=TriRule(npts=1))
+    femm2 = FEMMHeatDiff(fes = fes2, material=m, integration_rule=TriRule(npts=3))
 
 T2.numberdofs()
 fi2 = ForceIntensity(magn=lambda x, J: Q)
@@ -159,7 +159,7 @@ F2 += femm2.nz_ebc_loads_conductivity(geom2, T2)
 K2 = femm2.conductivity(geom2, T2)
 
 if top_bc=="N":
-    femm_nbc2 = FEMMHeatDiff(fes = boundary_fes2, material=m, integration_rule=GaussRule(dim=1, order=2))
+    femm_nbc2 = FEMMHeatDiff(fes = boundary_fes2, material=m, integration_rule=GaussRule(dim=1, order=3))
     F2 += femm_nbc2.distrib_loads(geom2, T2, fi_bottom, 3)
     F2 += femm_nbc2.distrib_loads(geom2, T2, fi_top, 3)
 
@@ -190,8 +190,8 @@ mu.numberdofs()
 # if elem_lagrange:
 #     M = femm_i.lam_mat(geom_i, mu)
 # else:
-#     M = femm_i.mass(geom_i, mu)
-
+# Mf = femm_i.mass/(geom_i, mu)
+#
 ########################################################################################################################
 # Mapping
 ########################################################################################################################
@@ -214,11 +214,17 @@ A = bmat([
     [None,  K2,     C2.T],
     [C1,    C2,     None],
 ], format='csr')
+#
+# A = bmat([
+#     [K1,    None,   C1.T],
+#     [None,  K2,     C2.T],
+#     [C1,    C2,     Mf*1e-10,]
+# ], format='csr')
 
 print(f"Dim - {A.shape}\n Rank - {np.linalg.matrix_rank(A.toarray())}")
 F = np.concatenate([F1, F2, dbc_lam_f])
-# U = spsolve(A, F)
-U = cg(A, F, rtol=1e-10)[0]
+U = spsolve(A, F)
+# U = cg(A, F, rtol=1e-10)[0]
 ########################################################################################################################
 # Post Processing
 ########################################################################################################################
@@ -237,14 +243,18 @@ script_filename = os.path.join(script_filename, subdir)
 if not os.path.exists(script_filename):
     os.mkdir(script_filename)
 
-
+exact =  lambda x: 1.0 + np.pow(x[0],2 )+ 2 * np.pow(x[1], 2)
 L2_err1 = L2_err(femm1, geom1, T1, exact)
 L2_err2 = L2_err(femm2, geom2, T2, exact)
-vtkexport(f"{script_filename}/left", fes1, geom1, {"Temperature":T1, "Error":L2_err1})
-vtkexport(f"{script_filename}/right", fes2, geom2, {"Temperature":T2, "Error":L2_err2})
+flx1 = flux(femm1, geom1, T1, exact)
+flx2 = flux(femm2, geom2, T2, exact)
+vtkexport(f"{script_filename}/left", fes1, geom1, {"Temperature":T1, "Error":L2_err1, "flx":flx1 })
+vtkexport(f"{script_filename}/right", fes2, geom2, {"Temperature":T2, "Error":L2_err2, "flx":flx2 })
 merge_vtk_files_common_fields(f"{script_filename}/left.vtu", f"{script_filename}/right.vtu", f"{script_filename}/merged.vtu")
 print(f"Maximum L2 error on left = {np.max(L2_err1.values)} \n"
       f"Maximum L2 error on right = {np.max(L2_err2.values)}")
+
+
 
 
 # plotting lagrange multiplier
@@ -345,6 +355,6 @@ if use_pv:
     plotter.show(screenshot=out_png)
     plotter.close()
 
-
+print(f"Max Lagrange Error = {np.max(np.abs(mu.values +1))}")
 
 

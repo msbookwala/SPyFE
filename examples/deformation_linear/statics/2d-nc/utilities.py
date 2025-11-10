@@ -1,3 +1,10 @@
+import os
+import sys
+sys.path.insert(0, os.path.abspath('../../../..'))
+
+import spyfe
+
+
 import numpy as np
 
 from spyfe.femms.femm_heatdiff import FEMMHeatDiff
@@ -45,22 +52,23 @@ def is_node_in_element(node_xyz, element_xyzs, element_dim=1):
 
 
 def compute_xi(node_xyz, element_xyz, element_dim=1):
-    node = np.asarray(node_xyz, dtype=np.float64)
-    element = np.asarray(element_xyz, dtype=np.float64)
+    """
+    Compute the isoparametric coordinates (xi) of a node within an element.
+    For 1D: maps node position to local coordinate in [-1, 1].
+    For 2D: (not implemented).
+    """
+    node = np.array(node_xyz)
+    element = np.array(element_xyz)
     if element_dim == 1:
-        a = element[0]; b = element[1]
-        v = b - a
-        denom = np.dot(v, v)
-        if denom == 0.0:
+        a, b = element
+        # Map node position to local coordinate xi in [-1, 1]
+        length = np.linalg.norm(b - a)
+        if length == 0:
             raise ValueError("Element has zero length.")
-        xi = 2.0 * np.dot(node - a, v) / denom - 1.0
-        # clamp tiny overshoot due to rounding
-        if xi < -1.0 - 1e-14: xi = -1.0
-        if xi >  1.0 + 1e-14: xi =  1.0
-        return float(xi)
+        xi = 2 * np.dot(node - a, b - a) / np.dot(b - a, b - a) - 1
+        return np.array([xi])
     else:
         raise NotImplementedError("Only 1D elements are supported.")
-
 
 
 def assemble_gamma(subdomain_fens, subdomain_bfes, subdomain_interface_fe_idx, interface_fens):
@@ -80,20 +88,25 @@ def assemble_gamma(subdomain_fens, subdomain_bfes, subdomain_interface_fe_idx, i
     return gamma
 
 def lagrange_interpolation_matrix(nodes1, nodes2, atol=1e-12):
-    nodes1 = np.asarray(nodes1, dtype=np.float64)
-    nodes2 = np.asarray(nodes2, dtype=np.float64)
+    nodes1 = np.asarray(nodes1, dtype=float)
+    nodes2 = np.asarray(nodes2, dtype=float)
     N1, N2 = nodes1.shape[0], nodes2.shape[0]
-    M = np.zeros((N2, N1), dtype=np.float64)
-    if N1 == 0: return M
+
+    # Map from source (N1) to target (N2): y_tgt = M @ y_src
+    M = np.zeros((N2, N1), dtype=float)
+
+    if N1 == 0:
+        return M
     if N1 == 1:
         M[:, 0] = 1.0
         return M
 
     for j in range(N2):
         p = nodes2[j, :]
-        # exact match
+
+        # Exact/near match with a source node -> Kronecker row
         d = np.linalg.norm(nodes1 - p, axis=1)
-        k_min = int(np.argmin(d))
+        k_min = np.argmin(d)
         if d[k_min] <= atol:
             M[j, k_min] = 1.0
             continue
@@ -103,22 +116,18 @@ def lagrange_interpolation_matrix(nodes1, nodes2, atol=1e-12):
             a = nodes1[i, :]
             b = nodes1[i + 1, :]
             if is_node_in_element(p, [a, b]):
-                xi = compute_xi(p, [a, b])   # scalar now
-                # linear shape functions
-                N_left  = 0.5 * (1.0 - xi)
-                N_right = 0.5 * (1.0 + xi)
-                # numerical safety: clamp small negative zeros
-                if N_left < 1e-16: N_left = 0.0
-                if N_right < 1e-16: N_right = 0.0
-                M[j, i]     += float(N_left)
-                M[j, i + 1] += float(N_right)
+                xi = compute_xi(p, [a, b])  # should be in [-1, 1]
+                # Linear shape functions on the segment
+                N_left  = 0.5 * (1.0 - xi)  # weight at node i
+                N_right = 0.5 * (1.0 + xi)  # weight at node i+1
+                M[j, i]     += N_left
+                M[j, i + 1] += N_right
                 placed = True
                 break
-        if not placed:
-            # robust fallback: nearest neighbor
-            M[j, k_min] = 1.0
-    return M
+    M[np.isclose(M, 2.0)] = 1.0
 
+
+    return M
 
 def pwc_interpolation_matrix(nodes1, nodes2, atol=1e-12):
     nodes1 = np.asarray(nodes1, dtype=float)
@@ -154,24 +163,6 @@ def L2_err(femm, geom, temp, sol):
             err.values[i] += (jac * w[j]) * (u-uh)**2
         err.values[i] = np.sqrt(err.values[i])
     return err
-
-def flux(femm, geom, temp, sol):
-    flux = ElementalField(nelems = femm.fes.conn.shape[0], dim = 2)
-
-    fes = femm.fes
-    bfuns, gradbfunpars, npts, pc, w = femm.integration_data()
-
-    mcs = femm.material_csys
-
-    for i in range(fes.conn.shape[0]):
-        x = geom.values[fes.conn[i, :], :]
-        for j in range(npts):
-            jacmat = np.dot(x.T, gradbfunpars[j])
-            jac = fes.jac_volume(fes.conn[i, :], bfuns[j], jacmat, x)
-            # flux.values[i] += np.dot(gradbfun, np.dot((jac * w[j]) * kappa_bar, gradbfun.T))
-            du = np.array(gradbfunpars)[j].T@temp.values[fes.conn[i]].flatten()
-            flux.values[i,:] += (jac * w[j]) * du
-    return flux
 
 def build_edge_map_simple(src_edge_xyz, tgt_xyz, tgt_conn, edge_elem_idx):
     # PO frame ->P1 subdomaing edge . flux to load
@@ -403,7 +394,7 @@ def _order_edge_nodes(edge_conn):
             break
     return np.array(order, dtype=int)
 
-def build_interface_interpolator(frame_xyz, tgt_xyz, tgt_conn, edge_elem_idx, elem_lagrange = True, tol = 1e-13, give_both =False) :
+def build_interface_interpolator(frame_xyz, tgt_xyz, tgt_conn, edge_elem_idx, elem_lagrange = True, tol = 1e-13) :
 
     if elem_lagrange:
         lm_degree = "p0"
@@ -415,7 +406,7 @@ def build_interface_interpolator(frame_xyz, tgt_xyz, tgt_conn, edge_elem_idx, el
     edge_xyz   = tgt_xyz[edge_nodes]
 
 
-    xys = unique_points_tol(np.vstack([frame_xyz, edge_xyz]), tol=1e-13)
+    xys = np.unique(np.round(np.vstack([frame_xyz, edge_xyz]), 10), axis=0)
     ys_i = xys[:,1]
     xs_i = xys[:,0]
     fens_i, fes_i = l2_blockx_2D(xs_i, ys_i)
@@ -430,7 +421,7 @@ def build_interface_interpolator(frame_xyz, tgt_xyz, tgt_conn, edge_elem_idx, el
         mu =  NodalField(nfens=fens_i.count(), dim=1)
         mu.numberdofs()
     m = MatHeatDiff(thermal_conductivity=np.array([[1, 0.0], [0.0, 1]]), rho=1.0)
-    femm_i = FEMMHeatDiff(fes=fes_i, material=m, integration_rule=GaussRule(dim=1, order=3))
+    femm_i = FEMMHeatDiff(fes=fes_i, material=m, integration_rule=GaussRule(dim=1, order=2))
 
     if lm_degree.lower() == "p0":
         A_ = lagrange_interpolation_matrix(edge_xyz, xys)
@@ -450,22 +441,4 @@ def build_interface_interpolator(frame_xyz, tgt_xyz, tgt_conn, edge_elem_idx, el
         rows.extend([r]*len(nz))
         cols.extend(edge_nodes[nz])
         data.extend(M_edge[r, nz])
-    if give_both:
-        return csr_matrix((data, (rows,  cols)), shape=(M_edge.shape[0], tgt_xyz.shape[0])), M_edge
-    else:
-        return csr_matrix((data, (rows,  cols)), shape=(M_edge.shape[0], tgt_xyz.shape[0]))
-
-
-def unique_points_tol(pts, tol=1e-12):
-    pts = np.asarray(pts, dtype=np.float64)
-    # sort by coordinates to make deterministic
-    idx = np.lexsort((pts[:,1], pts[:,0]))
-    pts_s = pts[idx]
-    keep = []
-    last = None
-    for p in pts_s:
-        if last is None or np.linalg.norm(p - last) > tol:
-            keep.append(tuple(p))
-            last = p
-    return np.asarray(keep, dtype=np.float64)
-
+    return csr_matrix((data, (rows,  cols)), shape=(M_edge.shape[0], tgt_xyz.shape[0]))
