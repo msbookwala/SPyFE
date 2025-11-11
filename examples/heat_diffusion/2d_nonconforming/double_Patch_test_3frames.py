@@ -31,22 +31,23 @@ from spyfe.meshing.generators.triangles import t3_ablock
 from scipy.integrate import trapezoid
 
 
-N_elem1 = 2
-N_elem2 = 2
-N_elem3 = 4
+N_elem1 = 13
+N_elem2 = 23
+N_elem3 = 12
 N_elem_i = min(N_elem1, N_elem2)
-N_elem_j = 4
+N_elem_j = 8
 left_m = "q"
 right_m = "q"
 top_m = "q"
-skew = 0.
+skew = 0.2
 elem_lagrange = False
 
 exact =  lambda x: x[0]-1
 k = 1.0  # thermal conductivity
 m = MatHeatDiff(thermal_conductivity=array([[k, 0.0], [0.0, k]]), rho=1.0)
 box_a = np.array([1, 1, 0, 1])
-box_b = np.array([0, 2, 1, 1])
+box_b1 = np.array([0, 2, 1, 1])
+box_b2 = np.array([0, 2, 1, 1])
 ########################################################################################################################
 # Side left
 ########################################################################################################################
@@ -64,8 +65,8 @@ boundary_fes1 = mesh_boundary(fes1)
 iedge_nodes1 = fenode_select(fens1, box_a)
 interface_fe_idx1 = fe_select(fens1, boundary_fes1, box=box_a)
 
-jedge_nodes1 = fenode_select(fens1, box_b)
-jinterface_fe_idx1 = fe_select(fens1, boundary_fes1, box=box_b)
+jedge_nodes1 = fenode_select(fens1, box_b1)
+jinterface_fe_idx1 = fe_select(fens1, boundary_fes1, box=box_b1)
 
 fens1.xyz[:, 0] +=  fens1.xyz[:, 0]*(fens1.xyz[:, 1]-0.5) * skew
 
@@ -99,8 +100,8 @@ boundary_fes2 = mesh_boundary(fes2)
 iedge_nodes2 = fenode_select(fens2, box_a)
 interface_fe_idx2 = fe_select(fens2, boundary_fes2, box=box_a)
 
-jedge_nodes2 = fenode_select(fens2, box_b)
-jinterface_fe_idx2 = fe_select(fens2, boundary_fes2, box = box_b)
+jedge_nodes2 = fenode_select(fens2, box_b2)
+jinterface_fe_idx2 = fe_select(fens2, boundary_fes2, box = box_b2)
 
 fens2.xyz[:, 0] +=  (2-fens2.xyz[:, 0])*(fens2.xyz[:, 1] - 0.5) * skew
 
@@ -134,8 +135,11 @@ else:
 
 # extracting the interface information before skewing the mesh
 boundary_fes3 = mesh_boundary(fes3)
-iedge_nodes3 = fenode_select(fens3, box_b)
-interface_fe_idx3 = fe_select(fens3, boundary_fes3, box=box_b)
+iedge_nodes31 = fenode_select(fens3, box_b1)
+interface_fe_idx31= fe_select(fens3, boundary_fes3, box=box_b1)
+
+iedge_nodes32 = fenode_select(fens3, box_b2)
+interface_fe_idx32= fe_select(fens3, boundary_fes3, box=box_b2)
 
 
 T3 = NodalField(nfens=fens3.count(), dim=1)
@@ -172,10 +176,10 @@ mu.numberdofs()
 # Interface2
 ########################################################################################################################
 # ys_i = np.unique(np.hstack([fens2.xyz[:, 1],fens1.xyz[:, 1]]))
-xs_j = np.linspace(0.0, 2.0, N_elem_j+1)  # y-coordinates
+xs_j = np.linspace(0.0, 1.0, int(N_elem_j/2)+1)  # y-coordinates
 ys_j = np.full_like(xs_j, 1.0)     # x-coordinates (constant)
 fens_j, fes_j = l2_blockx_2D(xs_j, ys_j)
-# fens_j.xyz[:, 0] +=  fens_j.xyz[:, 0]*(fens_j.xyz[:, 1]-0.5) * skew
+fens_j.xyz[:, 0] +=  fens_j.xyz[:, 0]*(fens_j.xyz[:, 1]-0.5) * skew
 
 
 if elem_lagrange:
@@ -194,22 +198,42 @@ M = femm_j.mass(geom_j, muj)
 #     M = femm_i.lam_mat(geom_i, mu)
 # else:
 #     M = femm_i.mass(geom_i, mu)
+########################################################################################################################
+# Interface3
+########################################################################################################################
+# ys_i = np.unique(np.hstack([fens2.xyz[:, 1],fens1.xyz[:, 1]]))
+xs_k = np.linspace(1, 2, int(N_elem_j/2)+1)  # y-coordinates
+ys_k = np.full_like(xs_k, 1.0)     # x-coordinates (constant)
+fens_k, fes_k = l2_blockx_2D(xs_k, ys_k)
+fens_k.xyz[:, 0] +=  (2-fens_k.xyz[:, 0])*(fens_k.xyz[:, 1]-0.5) * skew
 
+
+if elem_lagrange:
+    muk =  ElementalField(nelems=fes_k.count(), dim=1)
+    n_lambdak = fes_k.count()
+else:
+    muk =  NodalField(nfens=fens_k.count(), dim=1)
+    n_lambdak = fens_k.count()
+
+geom_k = NodalField(fens=fens_k)
+muk.numberdofs()
+
+femm_k = FEMMHeatDiff(fes = fes_k, material=m, integration_rule=GaussRule(dim=1, order=2))
 ########################################################################################################################
 # Mapping
 ########################################################################################################################
 
-C13, D13 = build_interface_interpolator(fens_j.xyz, fens1.xyz, boundary_fes1.conn, jinterface_fe_idx1, elem_lagrange, give_both=True)
-# print(C13.toarray())
-# exit()
-C31, D31 = build_interface_interpolator(fens_j.xyz, fens3.xyz, boundary_fes3.conn, interface_fe_idx3, elem_lagrange, give_both=True)
-C31 = -C31
-C23, D23 = build_interface_interpolator(fens_j.xyz, fens2.xyz, boundary_fes2.conn, jinterface_fe_idx2, elem_lagrange, give_both=True)
-
-
 C1 = build_interface_interpolator(fens_i.xyz, fens1.xyz, boundary_fes1.conn, interface_fe_idx1, elem_lagrange)
 C2 = -build_interface_interpolator(fens_i.xyz, fens2.xyz, boundary_fes2.conn, interface_fe_idx2, elem_lagrange)
 
+C13, D13 = build_interface_interpolator(fens_j.xyz, fens1.xyz, boundary_fes1.conn, jinterface_fe_idx1, elem_lagrange, give_both=True)
+C31, D31 = build_interface_interpolator(fens_j.xyz, fens3.xyz, boundary_fes3.conn, interface_fe_idx31, elem_lagrange, give_both=True)
+C31 = -C31
+
+
+C23, D23 = build_interface_interpolator(fens_k.xyz, fens2.xyz, boundary_fes2.conn, jinterface_fe_idx2, elem_lagrange, give_both=True)
+C32, D32 = build_interface_interpolator(fens_k.xyz, fens3.xyz, boundary_fes3.conn, interface_fe_idx32, elem_lagrange, give_both=True)
+C32 = -C32
 
 # C1_p = C1[:, dbc_nodes1]
 C2_p = C2[:, dbc_nodes2]
@@ -221,15 +245,16 @@ C23 = csr_matrix(np.delete(C23.toarray(), dbc_nodes2, axis = 1))
 # C1 = csr_matrix(np.delete(C1.toarray(), dbc_nodes1, axis = 1))
 
 A = bmat([
-    [K1,    None,   None,  C1.T,   C13.T ],
-    [None,  K2,     None,  C2.T,   C23.T ],
-    [None,  None,   K3,    None,   C31.T],
-    [C1,    C2,     None,  None,   None],
-    [C13,   C23,    C31,   None,   None]
+    [K1,    None,   None,  C1.T,   C13.T,    None],
+    [None,  K2,     None,  C2.T,   None,   C23.T ],
+    [None,  None,   K3,    None,   C31.T,  C32.T ],
+    [C1,    C2,     None,  None,   None,    None],
+    [C13,   None,    C31,   None,   None,    None],
+    [None,   C23,    C32,   None,   None,    None]
 ], format='csr')
 
 print(f"Dim - {A.shape}\n Rank - {np.linalg.matrix_rank(A.toarray())}")
-F = np.concatenate([F1, F2, F3, np.zeros(C1.shape[0]), np.zeros(C13.shape[0])], axis=0)
+F = np.concatenate([F1, F2, F3, np.zeros(C1.shape[0]), np.zeros(C13.shape[0]), np.zeros(C23.shape[0])], axis=0)
 U = spsolve(A, F)
 # print(U)
 # U = cg(A, F, rtol=1e-10)[0]
@@ -243,7 +268,9 @@ T1.scatter_sysvec(U[0:K1.shape[0]])
 T2.scatter_sysvec(U[K1.shape[0]:K1.shape[0]+K2.shape[0]])
 T3.scatter_sysvec(U[K1.shape[0]+K2.shape[0]:K1.shape[0]+K2.shape[0]+K3.shape[0]])
 mu.scatter_sysvec(U[K1.shape[0]+K2.shape[0]+K3.shape[0]:K1.shape[0]+K2.shape[0]+K3.shape[0]+C1.shape[0]])
-muj.scatter_sysvec(U[K1.shape[0]+K2.shape[0]+K3.shape[0]+C1.shape[0]:])
+muj.scatter_sysvec(U[K1.shape[0]+K2.shape[0]+K3.shape[0]+C1.shape[0]:K1.shape[0]+K2.shape[0]+K3.shape[0]+C1.shape[0]+C13.shape[0]])
+muk.scatter_sysvec(U[K1.shape[0]+K2.shape[0]+K3.shape[0]+C1.shape[0]+C13.shape[0]:])
+
 
 script_path = __file__
 script_filename = os.path.basename(script_path)[:-3]

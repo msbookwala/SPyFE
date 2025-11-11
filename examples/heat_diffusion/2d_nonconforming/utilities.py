@@ -413,9 +413,11 @@ def build_interface_interpolator(frame_xyz, tgt_xyz, tgt_conn, edge_elem_idx, el
     edge_conn = tgt_conn[edge_elem_idx]
     edge_nodes = _order_edge_nodes(edge_conn)
     edge_xyz   = tgt_xyz[edge_nodes]
+    edge_xyz_, frame_xyz_ = trim(edge_xyz, frame_xyz, tol=tol)
 
 
-    xys = unique_points_tol(np.vstack([frame_xyz, edge_xyz]), tol=1e-13)
+
+    xys = unique_points_tol(np.vstack([frame_xyz_, edge_xyz_]), tol=1e-13)
     ys_i = xys[:,1]
     xs_i = xys[:,0]
     fens_i, fes_i = l2_blockx_2D(xs_i, ys_i)
@@ -468,4 +470,21 @@ def unique_points_tol(pts, tol=1e-12):
             keep.append(tuple(p))
             last = p
     return np.asarray(keep, dtype=np.float64)
+
+def trim(edgexyz, frame_xyz, tol=1e-13):
+    kept_edge = []
+    kept_frame = []
+
+    endpts_frame = [frame_xyz[0], frame_xyz[-1]]
+    endpts_edge = [edgexyz[0], edgexyz[-1]]
+
+
+    for p in edgexyz:
+        if is_node_in_element(p, endpts_frame):
+            kept_edge.append(p)
+    for p in frame_xyz:
+        if is_node_in_element(p, endpts_edge):
+            kept_frame.append(p)
+    return np.array(kept_edge, dtype=np.float64), kept_frame
+
 

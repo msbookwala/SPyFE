@@ -31,14 +31,15 @@ from utilities import *
 import pyvista as pv
 from scipy.integrate import trapezoid
 
-N_elem1 = 10
-N_elem2 = 10
-# N_elem3 = 10
+N_elem1 = 5
+N_elem2 = 5
+N_elem3 = 10
 N_elem_i = min(N_elem1, N_elem2)
-# N_elem_i = 15
+N_elem_j = 10
 left_m = "q"
 right_m = "q"
-skew = 0.0
+top_m = "q"
+skew = 0.
 top_bc = "N"
 elem_lagrange = True
 
@@ -55,24 +56,29 @@ box_ = np.array([0.5,0.5,0.0,1.0])
 box_left = np.array([0.0,0.0,0.0,1.0])
 box_right = np.array([1.0,1.0,0.0,1.0])
 box_top = np.array([0.0,1.0,1.0,1.0])
-box_bottom = np.array([1.0,0.0,0.0,0.0])
+box_bottom = np.array([0.0,1.0,0.0,0.0])
+box_b = np.array([0,1,0.5,0.5])
 ########################################################################################################################
 # subdomain 1
 ########################################################################################################################
 if left_m == "q":
-    xs1 = np.linspace(0.0, 0.5, int(N_elem1/2)+1)
-    ys1 = np.linspace(0.0, 1.0, N_elem1+1)
+    xs1 = np.linspace(0.0, 0.5, int(N_elem1)+1)
+    ys1 = np.linspace(0.0, 0.5, N_elem1+1)
 
 
     fens1, fes1 = q4_blockx(xs1, ys1)
 else:
-    fens1, fes1 = t3_ablock(1, 2, int(N_elem1/2), N_elem1)
+    fens1, fes1 = t3_ablock(0.5, 0.5, int(N_elem1), N_elem1)
 
 # extracting the interface information before skewing the mesh
 boundary_fes1 = mesh_boundary(fes1)
 iedge_nodes1 = fenode_select(fens1, box)
 interface_fe_idx1 = fe_select(fens1, boundary_fes1, box=box)
-fens1.xyz[:, 0] +=  fens1.xyz[:, 0]*(fens1.xyz[:, 1]-0.5) * skew
+
+jedge_nodes1 = fenode_select(fens1, box_b)
+jinterface_fe_idx1 = fe_select(fens1, boundary_fes1, box=box_b)
+
+fens1.xyz[:, 0] +=  fens1.xyz[:, 0]*(fens1.xyz[:, 1]-0.25) * skew
 
 cn1 = connected_nodes(boundary_fes1)
 geom1 = NodalField(fens=fens1)
@@ -89,6 +95,7 @@ if top_bc=="D":
                                      ])))
 else:
     dbc_nodes1 = fenode_select(fens1, box_left)
+
 dbc_nodes1 = dbc_nodes1.astype(np.int32)
 for index  in dbc_nodes1:
     T1.set_ebc([index], val=boundaryf(fens1.xyz[index, 0], fens1.xyz[index, 1]))
@@ -110,24 +117,28 @@ fi_top = ForceIntensity(magn=lambda x, J: q(x[0], x[1]) if np.isclose(x[1], 1.0)
 if top_bc=="N":
     femm_nbc1 = FEMMHeatDiff(fes = boundary_fes1, material=m, integration_rule=GaussRule(dim=1, order=3))
     F1 += femm_nbc1.distrib_loads(geom1, T1, fi_bottom, 3)
-    F1 += femm_nbc1.distrib_loads(geom1, T1, fi_top, 3)
+    # F1 += femm_nbc1.distrib_loads(geom1, T1, fi_top, 3)
 
 ########################################################################################################################
 # subdomain 2
 ########################################################################################################################
 if right_m == "q":
-    xs2 = np.linspace(0.5, 1, int(N_elem2/2)+1)
-    ys2 = np.linspace(0.0, 1.0, N_elem2+1)
+    xs2 = np.linspace(0.5, 1, int(N_elem2)+1)
+    ys2 = np.linspace(0.0, 0.5, N_elem2+1)
     fens2, fes2 = q4_blockx(xs2, ys2)
 else:
-    fens2, fes2 = t3_ablock(0.5, 1, int(N_elem2/2), N_elem2)
+    fens2, fes2 = t3_ablock(0.5, 0.5, int(N_elem2), N_elem2)
     fens2.xyz[:, 0] += 0.5
 
 # extracting the interface information before skewing the mesh
 boundary_fes2 = mesh_boundary(fes2)
 iedge_nodes2 = fenode_select(fens2, box)
 interface_fe_idx2 = fe_select(fens2, boundary_fes2, box=box)
-fens2.xyz[:, 0] +=  (1-fens2.xyz[:, 0])*(fens2.xyz[:, 1] - 0.5) * skew
+jedge_nodes2 = fenode_select(fens2, box_b)
+jinterface_fe_idx2 = fe_select(fens2, boundary_fes2, box = box_b)
+
+
+fens2.xyz[:, 0] +=  (1-fens2.xyz[:, 0])*(fens2.xyz[:, 1] - 0.25) * skew
 
 cn2 = connected_nodes(boundary_fes2)
 geom2 = NodalField(fens=fens2)
@@ -161,12 +172,46 @@ K2 = femm2.conductivity(geom2, T2)
 if top_bc=="N":
     femm_nbc2 = FEMMHeatDiff(fes = boundary_fes2, material=m, integration_rule=GaussRule(dim=1, order=3))
     F2 += femm_nbc2.distrib_loads(geom2, T2, fi_bottom, 3)
-    F2 += femm_nbc2.distrib_loads(geom2, T2, fi_top, 3)
+    # F2 += femm_nbc2.distrib_loads(geom2, T2, fi_top, 3)
+########################################################################################################################
+# Side top
+########################################################################################################################
 
+if top_m == "q":
+    xs3 = np.linspace(0.0, 1.0, N_elem3+1)
+    ys3 = np.linspace(0.5, 1.0, int(N_elem3/2)+1)
+    fens3, fes3 = q4_blockx(xs3, ys3)
+    femm3 = FEMMHeatDiff(fes = fes3, material=m, integration_rule=GaussRule(dim=2, order=2))
+
+else:
+    fens3, fes3 = t3_ablock(2, 1, N_elem3, N_elem3)
+    fens3.xyz[:, 1] += 1.0
+    femm3 = FEMMHeatDiff(fes = fes3, material=m, integration_rule=TriRule(npts=3))
+
+# extracting the interface information before skewing the mesh
+boundary_fes3 = mesh_boundary(fes3)
+iedge_nodes3 = fenode_select(fens3, box_b)
+interface_fe_idx3 = fe_select(fens3, boundary_fes3, box=box_b)
+
+dbc_nodes3 = np.sort(np.hstack([fenode_select(fens3, box_left), fenode_select(fens3, box_right)]))
+T3 = NodalField(nfens=fens3.count(), dim=1)
+geom3 = NodalField(fens=fens3)
+for index  in dbc_nodes3:
+    T3.set_ebc([index], val=boundaryf(fens3.xyz[index, 0], fens3.xyz[index, 1]))
+T3.apply_ebc()
+T3.numberdofs()
+K3 = femm3.conductivity(geom3, T3)
+
+fi3 = ForceIntensity(magn=lambda x, J: Q)
+F3 = femm3.distrib_loads(geom3, T3, fi3, 3)
+F3 += femm3.nz_ebc_loads_conductivity(geom3, T3)
+
+femm_nbc3 = FEMMHeatDiff(fes = boundary_fes3, material=m, integration_rule=GaussRule(dim=1, order=3))
+F3 += femm_nbc3.distrib_loads(geom3, T3, fi_top, 3)
 ########################################################################################################################
 # interface
 ########################################################################################################################
-ys_i = np.linspace(0.0, 1.0, N_elem_i+1)  # y-coordinates
+ys_i = np.linspace(0.0, 0.5, N_elem_i+1)  # y-coordinates
 xs_i = np.full_like(ys_i, 0.5)     # x-coordinates (constant)
 
 # xys = np.unique(np.round(np.vstack([fens1.xyz[iedge_nodes1], fens2.xyz[iedge_nodes2]]), 7), axis=0)
@@ -174,7 +219,7 @@ xs_i = np.full_like(ys_i, 0.5)     # x-coordinates (constant)
 # xs_i = xys[:,0]
 
 fens_i, fes_i = l2_blockx_2D(xs_i, ys_i)
-fens_i.xyz[:, 0] +=  fens_i.xyz[:, 0]*(fens_i.xyz[:, 1]-0.5) * skew
+fens_i.xyz[:, 0] +=  fens_i.xyz[:, 0]*(fens_i.xyz[:, 1]-0.25) * skew
 
 if elem_lagrange:
     mu =  ElementalField(nelems=fes_i.count(), dim=1)
@@ -192,6 +237,29 @@ mu.numberdofs()
 # else:
 # Mf = femm_i.mass/(geom_i, mu)
 #
+
+########################################################################################################################
+# Interface2
+########################################################################################################################
+# ys_i = np.unique(np.hstack([fens2.xyz[:, 1],fens1.xyz[:, 1]]))
+xs_j = np.linspace(0.0, 1.0, N_elem_j+1)  # y-coordinates
+ys_j = np.full_like(xs_j, 0.5)     # x-coordinates (constant)
+fens_j, fes_j = l2_blockx_2D(xs_j, ys_j)
+# fens_j.xyz[:, 0] +=  fens_j.xyz[:, 0]*(fens_j.xyz[:, 1]-0.5) * skew
+
+
+if elem_lagrange:
+    muj =  ElementalField(nelems=fes_j.count(), dim=1)
+    n_lambdaj = fes_j.count()
+else:
+    muj =  NodalField(nfens=fens_j.count(), dim=1)
+    n_lambdaj = fens_j.count()
+
+geom_j = NodalField(fens=fens_j)
+muj.numberdofs()
+
+femm_j = FEMMHeatDiff(fes = fes_j, material=m, integration_rule=GaussRule(dim=1, order=2))
+M = femm_j.mass(geom_j, muj)
 ########################################################################################################################
 # Mapping
 ########################################################################################################################
@@ -201,6 +269,14 @@ frame_xyz = fens_i.xyz
 C1 = build_interface_interpolator(fens_i.xyz, fens1.xyz, boundary_fes1.conn, interface_fe_idx1, elem_lagrange)
 C2 = -build_interface_interpolator(fens_i.xyz, fens2.xyz, boundary_fes2.conn, interface_fe_idx2, elem_lagrange)
 
+C13, D13 = build_interface_interpolator(fens_j.xyz, fens1.xyz, boundary_fes1.conn, jinterface_fe_idx1, elem_lagrange, give_both=True)
+# print(C13.toarray())
+# exit()
+C31, D31 = build_interface_interpolator(fens_j.xyz, fens3.xyz, boundary_fes3.conn, interface_fe_idx3, elem_lagrange, give_both=True)
+C31 = -C31
+C23, D23 = build_interface_interpolator(fens_j.xyz, fens2.xyz, boundary_fes2.conn, jinterface_fe_idx2, elem_lagrange, give_both=True)
+
+
 C1_p = C1[:, dbc_nodes1]
 C2_p = C2[:, dbc_nodes2]
 T1_p = T1.fixed_values[T1.is_fixed]
@@ -209,20 +285,33 @@ dbc_lam_f = -(C1_p @ T1_p) - (C2_p @ T2_p)
 C2 = csr_matrix(np.delete(C2.toarray(), dbc_nodes2, axis = 1))
 C1 = csr_matrix(np.delete(C1.toarray(), dbc_nodes1, axis = 1))
 
+C13_p = C13[:, dbc_nodes1]
+C31_p = C31[:, dbc_nodes3]
+C23_p = C23[:, dbc_nodes2]
+T3_p = T3.fixed_values[T3.is_fixed]
+dbc_lam_f2 = -(C13_p @ T1_p) - (C23_p @ T2_p)-(C31_p @ T3_p)
+C23 = csr_matrix(np.delete(C23.toarray(), dbc_nodes2, axis = 1))
+C13 = csr_matrix(np.delete(C13.toarray(), dbc_nodes1, axis = 1))
+C31 = csr_matrix(np.delete(C31.toarray(), dbc_nodes3, axis = 1))
+
+
 A = bmat([
-    [K1,    None,   C1.T],
-    [None,  K2,     C2.T],
-    [C1,    C2,     None],
+    [K1,    None,   None,  C1.T,   C13.T ],
+    [None,  K2,     None,  C2.T,   C23.T ],
+    [None,  None,   K3,    None,   C31.T],
+    [C1,    C2,     None,  None,   None],
+    [C13,   C23,    C31,   None,   None]
 ], format='csr')
 #
 # A = bmat([
 #     [K1,    None,   C1.T],
 #     [None,  K2,     C2.T],
-#     [C1,    C2,     Mf*1e-10,]
+#     [C1,    C2,     None,]
 # ], format='csr')
 
 print(f"Dim - {A.shape}\n Rank - {np.linalg.matrix_rank(A.toarray())}")
-F = np.concatenate([F1, F2, dbc_lam_f])
+F = np.concatenate([F1, F2,F3, dbc_lam_f, dbc_lam_f2])
+# F = np.concatenate([F1, F2, dbc_lam_f])
 U = spsolve(A, F)
 # U = cg(A, F, rtol=1e-10)[0]
 ########################################################################################################################
@@ -231,7 +320,9 @@ U = spsolve(A, F)
 # Output files
 T1.scatter_sysvec(U[0:K1.shape[0]])
 T2.scatter_sysvec(U[K1.shape[0]:K1.shape[0]+K2.shape[0]])
-mu.scatter_sysvec(U[K1.shape[0]+K2.shape[0]:])
+T3.scatter_sysvec(U[K1.shape[0]+K2.shape[0]:K1.shape[0]+K2.shape[0]+K3.shape[0]])
+mu.scatter_sysvec(U[K1.shape[0]+K2.shape[0]+K3.shape[0]:K1.shape[0]+K2.shape[0]+K3.shape[0]+C1.shape[0]])
+muj.scatter_sysvec(U[K1.shape[0]+K2.shape[0]+K3.shape[0]+C1.shape[0]:])
 
 
 script_path = __file__
@@ -246,19 +337,22 @@ if not os.path.exists(script_filename):
 exact =  lambda x: 1.0 + np.pow(x[0],2 )+ 2 * np.pow(x[1], 2)
 L2_err1 = L2_err(femm1, geom1, T1, exact)
 L2_err2 = L2_err(femm2, geom2, T2, exact)
-flx1 = flux(femm1, geom1, T1, exact)
-flx2 = flux(femm2, geom2, T2, exact)
-vtkexport(f"{script_filename}/left", fes1, geom1, {"Temperature":T1, "Error":L2_err1, "flx":flx1 })
-vtkexport(f"{script_filename}/right", fes2, geom2, {"Temperature":T2, "Error":L2_err2, "flx":flx2 })
-merge_vtk_files_common_fields(f"{script_filename}/left.vtu", f"{script_filename}/right.vtu", f"{script_filename}/merged.vtu")
+L2_err3 = L2_err(femm3, geom3, T3, exact)
+vtkexport(f"{script_filename}/left", fes1, geom1, {"Temperature":T1, "Error":L2_err1})
+vtkexport(f"{script_filename}/right", fes2, geom2, {"Temperature":T2, "Error":L2_err2})
+vtkexport(f"{script_filename}/top", fes3, geom3, {"Temperature":T3, "Error":L2_err3})
+merge_vtk_files_common_fields(f"{script_filename}/left.vtu", f"{script_filename}/right.vtu", f"{script_filename}/mergeda.vtu")
+merge_vtk_files_common_fields(f"{script_filename}/mergeda.vtu", f"{script_filename}/top.vtu", f"{script_filename}/merged.vtu")
+
 print(f"Maximum L2 error on left = {np.max(L2_err1.values)} \n"
-      f"Maximum L2 error on right = {np.max(L2_err2.values)}")
+      f"Maximum L2 error on right = {np.max(L2_err2.values)} \n"
+      f"Maximum L2 error on top = {np.max(L2_err3.values)} \n")
 
 
 
 
 # plotting lagrange multiplier
-
+"""
 print(f"Lambda values : {mu.values.T}")
 print(f"sum of lambda values = {np.sum(mu.values)}")
 import matplotlib.pyplot as plt
@@ -300,7 +394,7 @@ y2_b = fens2.xyz[iedge_nodes2, 1]
 t2_b_on1 = np.interp(y1_b, y2_b, t2_b)
 t_integ =trapezoid(np.abs(t1_b-t2_b_on1), y1_b)
 print(f"∫(T1-T2)dΓ = {t_integ}")
-
+"""
 ########################################################################################################################
 # pyvista
 ########################################################################################################################

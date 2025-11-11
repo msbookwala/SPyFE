@@ -29,15 +29,15 @@ from utilities import *
 import pyvista as pv
 from spyfe.meshing.generators.triangles import t3_ablock
 from scipy.integrate import trapezoid
+from scipy.sparse.linalg import cg
 
-
-N_elem1 = 20
-N_elem2 = 30
+N_elem1 = 5
+N_elem2 = 7
 N_elem_i = min(N_elem1, N_elem2)
-N_elem_i = 13
+# N_elem_i = 13
 left_m = "q"
-right_m = "q"
-skew = 0.6
+right_m = "t"
+skew = 0.0
 elem_lagrange = True
 
 exact =  lambda x: x[0]-1
@@ -128,11 +128,11 @@ else:
 geom_i = NodalField(fens=fens_i)
 mu.numberdofs()
 
-# femm_i = FEMMHeatDiff(fes = fes_i, material=m, integration_rule=GaussRule(dim=1, order=2))
-# if elem_lagrange:
-#     M = femm_i.lam_mat(geom_i, mu)
-# else:
-#     M = femm_i.mass(geom_i, mu)
+femm_i = FEMMHeatDiff(fes = fes_i, material=m, integration_rule=GaussRule(dim=1, order=2))
+if elem_lagrange:
+    M = femm_i.lam_mat(geom_i, mu)
+else:
+    M = femm_i.mass(geom_i, mu)
 
 ########################################################################################################################
 # Mapping
@@ -159,7 +159,7 @@ A = bmat([
 print(f"Dim - {A.shape}\n Rank - {np.linalg.matrix_rank(A.toarray())}")
 F = np.concatenate([F1, F2, dbc_lam_f])
 U = spsolve(A, F)
-# U = cg(A, F, rtol=1e-10)[0]
+# U = cg(A, F, rtol=1e-30)[0]
 
 ########################################################################################################################
 # Post Processing
@@ -197,10 +197,11 @@ if elem_lagrange:
 else:
     plt.plot(fens_i.xyz[:,1], mu.values.flatten(),   label="lambda f")
 plt.legend()
-plt.title("Lagrange multipliers and their projections")
+plt.title("Lagrange multipliers")
 plt.xlabel("y along the interface")
 plt.ylabel("Lagrange multiplier")
 # # plt.ylim(-50,50)
+plt.ylim(min(mu.values.flatten())-0.1, max(mu.values.flatten())+0.1)
 plt.savefig(f"{script_filename}/lagrange.png")
 plt.show()
 
