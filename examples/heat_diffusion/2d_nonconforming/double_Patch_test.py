@@ -31,15 +31,16 @@ from spyfe.meshing.generators.triangles import t3_ablock
 from scipy.integrate import trapezoid
 
 
-N_elem1 = 2
-N_elem2 = 2
-N_elem3 = 4
+N_elem1 = 15
+N_elem2 = 14
+N_elem3 = 41
 N_elem_i = min(N_elem1, N_elem2)
-N_elem_j = 4
+N_elem_i = 2
+N_elem_j = 2
 left_m = "q"
 right_m = "q"
 top_m = "q"
-skew = 0.
+skew = 0.5
 elem_lagrange = False
 
 exact =  lambda x: x[0]-1

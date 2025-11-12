@@ -31,17 +31,18 @@ from utilities import *
 import pyvista as pv
 from scipy.integrate import trapezoid
 
-N_elem1 = 5
-N_elem2 = 5
+N_elem1 = 15
+N_elem2 = 25
 N_elem3 = 10
 N_elem_i = min(N_elem1, N_elem2)
 N_elem_j = 10
 left_m = "q"
 right_m = "q"
 top_m = "q"
-skew = 0.
+skew = 0.0
 top_bc = "N"
-elem_lagrange = True
+elem_lagrange = False
+
 
 # These are the constants in the problem, k is kappa
 boundaryf = lambda x, y: 1.0 + x ** 2 + 2 * y ** 2
@@ -275,6 +276,12 @@ C13, D13 = build_interface_interpolator(fens_j.xyz, fens1.xyz, boundary_fes1.con
 C31, D31 = build_interface_interpolator(fens_j.xyz, fens3.xyz, boundary_fes3.conn, interface_fe_idx3, elem_lagrange, give_both=True)
 C31 = -C31
 C23, D23 = build_interface_interpolator(fens_j.xyz, fens2.xyz, boundary_fes2.conn, jinterface_fe_idx2, elem_lagrange, give_both=True)
+
+interface_fe_idx3a = fe_select(fens_j, boundary_fes3, box=np.array([0,0.5,0.5,0.5]))
+interface_fe_idx3b = fe_select(fens_j, boundary_fes2, box=np.array([0.5,1,0.5,0.5]))
+
+C3a, D3a = build_interface_interpolator(fens_j.xyz, fens3.xyz, boundary_fes3.conn, interface_fe_idx3a, elem_lagrange, give_both=True)
+C3b, D3b = build_interface_interpolator(fens_j.xyz, fens3.xyz, boundary_fes3.conn, interface_fe_idx3b, elem_lagrange, give_both=True)
 
 
 C1_p = C1[:, dbc_nodes1]
