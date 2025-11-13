@@ -17,6 +17,7 @@ from spyfe.fields.nodal_field import NodalField
 from spyfe.integ_rules import GaussRule
 from spyfe.materials.mat_heatdiff import MatHeatDiff
 from spyfe.meshing.generators.intervals import l2_blockx_2D
+from spyfe.meshing.selection import connected_nodes, fe_select, fenode_select
 
 
 def is_node_in_element(node_xyz, element_xyzs, element_dim=1):
@@ -488,3 +489,63 @@ def trim(edgexyz, frame_xyz, tol=1e-13):
     return np.array(kept_edge, dtype=np.float64), kept_frame
 
 
+def build_interface_interpolator2(frame, tgt_xyz, tgt_conn, edge_elem_idx, elem_lagrange = True, tol = 1e-13, give_both =False) :
+
+    frame_xyz = frame.xyz
+    if elem_lagrange:
+        lm_degree = "p0"
+    else:
+        lm_degree = "p1"
+    # Order target interface nodes
+    edge_conn = tgt_conn[edge_elem_idx]
+    edge_nodes = _order_edge_nodes(edge_conn)
+    edge_xyz   = tgt_xyz[edge_nodes]
+
+    box = [np.min(edge_xyz[:,0]), np.max(edge_xyz[:,0]), np.min(edge_xyz[:,1]), np.max(edge_xyz[:,1])]
+    frame_in_box = fenode_select(frame.xyz, box)
+    frame_xyz_ = frame.xyz[frame_in_box]
+
+    # edge_xyz_, frame_xyz_ = trim(edge_xyz, frame_xyz, tol=tol)
+
+
+
+    xys = unique_points_tol(np.vstack([frame_xyz_, edge_xyz]), tol=1e-13)
+    ys_i = xys[:,1]
+    xs_i = xys[:,0]
+    fens_i, fes_i = l2_blockx_2D(xs_i, ys_i)
+
+
+
+    geom_i = NodalField(fens=fens_i)
+    if lm_degree.lower() == "p0":
+        mu = ElementalField(nelems=fes_i.count(), dim=1)
+        mu.numberdofs()
+    else:
+        mu =  NodalField(nfens=fens_i.count(), dim=1)
+        mu.numberdofs()
+    m = MatHeatDiff(thermal_conductivity=np.array([[1, 0.0], [0.0, 1]]), rho=1.0)
+    femm_i = FEMMHeatDiff(fes=fes_i, material=m, integration_rule=GaussRule(dim=1, order=3))
+
+    if lm_degree.lower() == "p0":
+        A_ = lagrange_interpolation_matrix(edge_xyz, xys)
+        B_ = pwc_interpolation_matrix(frame_xyz, xys)
+        M = femm_i.lam_mat(geom_i, mu)
+        M_edge = B_.T@M@A_
+    else:
+        A_ = lagrange_interpolation_matrix(edge_xyz, xys)
+        B_ = lagrange_interpolation_matrix(frame_xyz, xys)
+
+        M = femm_i.mass(geom_i, mu)
+        M_edge = B_.T @ M @ A_
+
+    # Embed edge-only columns into full NT
+    rows, cols, data = [], [], []
+    for r in range(M_edge.shape[0]):
+        nz = np.nonzero(M_edge[r, :])[0]
+        rows.extend([r]*len(nz))
+        cols.extend(edge_nodes[nz])
+        data.extend(M_edge[r, nz])
+    if give_both:
+        return csr_matrix((data, (rows,  cols)), shape=(M_edge.shape[0], tgt_xyz.shape[0])), M_edge
+    else:
+        return csr_matrix((data, (rows,  cols)), shape=(M_edge.shape[0], tgt_xyz.shape[0]))
